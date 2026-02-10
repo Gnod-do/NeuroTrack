@@ -13,7 +13,7 @@
 - обновление списка портов не чаще 1 раза в 10 секунд и без сброса выбранных портов;
 - уведомления (небольшие окна) на 20 секунд при отключении питания/потере порта/потере контакта.
 """
-import sys, time, json, threading
+import sys, time, json, threading, platform
 from typing import List, Tuple, Optional, Dict
 
 from PyQt5 import QtWidgets, QtCore
@@ -154,7 +154,24 @@ def list_com_ports() -> List[Tuple[str, str]]:
 
         out.append((dev, name))
 
+    # Стабильная сортировка по имени устройства нужна для Linux-систем,
+    # где последовательность list_ports может «плавать» между вызовами.
+    out.sort(key=lambda item: item[0])
+
     return out
+
+
+def serial_open_kwargs(timeout: float = 0.1) -> Dict[str, object]:
+    """
+    Возвращает аргументы для serial.Serial без платформенных regressions.
+    - Windows: используем только timeout (поведение как раньше).
+    - Linux/*nix: отключаем эксклюзивный lock порта (exclusive=False),
+      чтобы избежать ошибок открытия на некоторых дистрибутивах.
+    """
+    kwargs: Dict[str, object] = {"timeout": timeout}
+    if platform.system().lower() != "windows":
+        kwargs["exclusive"] = False
+    return kwargs
 
 
 # ==============================
@@ -240,7 +257,7 @@ class NeuroReader(QtCore.QThread):
     def run(self):
         try:
             self._emit_status("Подключение...")
-            ser = serial.Serial(self.port, 57600, timeout=0.1)
+            ser = serial.Serial(self.port, 57600, **serial_open_kwargs(timeout=0.1))
         except Exception:
             self._emit_status("Отключено")
             return
@@ -420,7 +437,7 @@ class TrackBridge(QtCore.QThread):
     def run(self):
         ser = None
         try:
-            ser = serial.Serial(self.port, self.baud, timeout=0.1)
+            ser = serial.Serial(self.port, self.baud, **serial_open_kwargs(timeout=0.1))
             self.opened.emit(True, "Trackduino: подключено")
             self._emit_status("Подключено")
         except Exception as e:
@@ -483,7 +500,7 @@ class BridgeUI(QtWidgets.QWidget):
         self.resize(1100, 760)
 
         self.setStyleSheet("""
-            QWidget { background:#0f0f12; color:#f0f0f0; font-family:'Segoe UI'; font-size:11pt; }
+            QWidget { background:#0f0f12; color:#f0f0f0; font-family:'Segoe UI','Noto Sans','DejaVu Sans',sans-serif; font-size:11pt; }
             QGroupBox { border:1px solid #2a2a33; border-radius:10px; margin-top:12px; padding-top:10px; }
             QGroupBox::title { color:#ff9f1a; font-weight:600; left:10px; }
             QPushButton { border:none; color:#000; background-color:#ff9f1a; padding:8px 18px; border-radius:18px; font-weight:600; }
