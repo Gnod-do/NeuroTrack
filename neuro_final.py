@@ -13,7 +13,7 @@
 - обновление списка портов не чаще 1 раза в 10 секунд и без сброса выбранных портов;
 - уведомления (небольшие окна) на 20 секунд при отключении питания/потере порта/потере контакта.
 """
-import sys, time, json, threading, platform, socket
+import sys, time, json, threading, platform, socket, signal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib import request as urllib_request
 from typing import List, Tuple, Optional, Dict
@@ -620,7 +620,7 @@ class BridgeUI(QtWidgets.QWidget):
         self.resize(1100, 760)
 
         self.setStyleSheet("""
-            QWidget { background:#0f0f12; color:#f0f0f0; font-family:'Segoe UI','Noto Sans','DejaVu Sans',sans-serif; font-size:11pt; }
+            QWidget { background:#0f0f12; color:#f0f0f0; font-family:'Noto Sans','DejaVu Sans','Arial',sans-serif; font-size:11pt; }
             QGroupBox { border:1px solid #2a2a33; border-radius:10px; margin-top:12px; padding-top:10px; }
             QGroupBox::title { color:#ff9f1a; font-weight:600; left:10px; }
             QPushButton { border:none; color:#000; background-color:#ff9f1a; padding:8px 18px; border-radius:18px; font-weight:600; }
@@ -1007,13 +1007,32 @@ class BridgeUI(QtWidgets.QWidget):
 # ==============================
 # --- Запуск приложения
 # ==============================
-def main():
+def main() -> int:
     app = QtWidgets.QApplication(sys.argv)
     pg.setConfigOptions(antialias=True)
     w = BridgeUI()
     w.show()
-    sys.exit(app.exec_())
+
+    # Позволяет корректно завершать Qt-приложение по Ctrl+C без traceback.
+    if hasattr(signal, "SIGINT"):
+        signal.signal(signal.SIGINT, lambda *_: app.quit())
+
+    # Пустой таймер, чтобы Python регулярно обрабатывал сигналы,
+    # пока event loop Qt активен.
+    sig_timer = QtCore.QTimer()
+    sig_timer.start(200)
+    sig_timer.timeout.connect(lambda: None)
+
+    try:
+        return int(app.exec_())
+    except KeyboardInterrupt:
+        return 0
+    finally:
+        try:
+            w.local_server.stop()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
