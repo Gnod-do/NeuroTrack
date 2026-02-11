@@ -888,7 +888,7 @@ class BridgeUI(QtWidgets.QWidget):
         root.addWidget(state_box)
 
         # --- Plot + right bars (two-column model) ---
-        content_box = QtWidgets.QGroupBox("Текущие значения")
+        content_box = QtWidgets.QGroupBox("График и индикаторы")
         content_layout = QtWidgets.QHBoxLayout(content_box)
         content_layout.setSpacing(12)
 
@@ -927,8 +927,9 @@ class BridgeUI(QtWidgets.QWidget):
         bars_panel = QtWidgets.QFrame()
         bars_panel.setStyleSheet("QFrame{background:rgba(8,16,32,.45); border:1px solid #24365f; border-radius:12px;}")
         bars_layout = QtWidgets.QVBoxLayout(bars_panel)
-        bars_layout.setContentsMargins(10, 12, 10, 12)
-        bars_layout.setSpacing(8)
+        bars_layout.setContentsMargins(8, 10, 8, 10)
+        bars_layout.setSpacing(10)
+        bars_panel.setMinimumWidth(86)
         bars_layout.addWidget(self.vbar_a, 1)
         bars_layout.addWidget(self.vbar_m, 1)
 
@@ -1136,6 +1137,10 @@ class BridgeUI(QtWidgets.QWidget):
         self.cur_m = int(max(0, min(100, m)))
         self.cur_b = int(max(0, min(100, b)))
         self.cur_poor = int(max(0, min(200, poor)))
+
+        # Обновляем правые индикаторы сразу при приходе данных (без ожидания on_periodic).
+        self.vbar_a.setValue(self.cur_a)
+        self.vbar_m.setValue(self.cur_m)
 
         # neuro OK: poor==0 и есть актуальные данные
         neuro_ok = (self.cur_poor == 0) and (self._last_neuro_state == "Подключено")
