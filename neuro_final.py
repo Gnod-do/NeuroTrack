@@ -930,26 +930,14 @@ class BridgeUI(QtWidgets.QWidget):
         super().closeEvent(event)
 
     def _collect_export_payload(self) -> Dict[str, object]:
+        # Формат строго по требованию интеграции:
+        # <{"n":{"a":A,"m":M,"b":B}}>
         return {
-            "timestamp": time.time(),
-            "connected": self._connected,
-            "status": {
-                "neuro": self._last_neuro_state or "Отключено",
-                "trackduino": self._last_track_state or "Отключено",
-            },
-            "values": {
-                "attention": self.cur_a,
-                "meditation": self.cur_m,
-                "blink": self.cur_b,
-                "poor_signal": self.cur_poor,
-            },
-            "port": {
-                "host": self.local_server.host,
-                "port": self.local_server.port,
-                "results": f"http://{self.local_server.host}:{self.local_server.port}/results",
-                "stream": f"http://{self.local_server.host}:{self.local_server.port}/stream",
-                "stream_events": f"http://{self.local_server.host}:{self.local_server.port}/stream/events",
-            },
+            "n": {
+                "a": int(self.cur_a),
+                "m": int(self.cur_m),
+                "b": int(self.cur_b),
+            }
         }
 
     # ---------- status handlers ----------
