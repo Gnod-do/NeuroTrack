@@ -13,7 +13,9 @@
 - обновление списка портов не чаще 1 раза в 10 секунд и без сброса выбранных портов;
 - уведомления (небольшие окна) на 20 секунд при отключении питания/потере порта/потере контакта.
 """
-import sys, time, json, threading, platform
+import sys, time, json, threading, platform, socket, signal
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib import request as urllib_request
 from typing import List, Tuple, Optional, Dict
 
 from PyQt5 import QtWidgets, QtCore
@@ -480,6 +482,288 @@ class TrackBridge(QtCore.QThread):
 
 
 # ==============================
+# --- Localhost data server ---
+# ==============================
+class LocalhostDataServer:
+    """
+    HTTP-сервер для выдачи текущих данных NeuroTrack на localhost.
+    GET  /stream   -> веб-страница с live-обновлением данных
+    GET  /stream/events -> та же веб-страница live-view
+    GET  /stream/data -> непрерывный SSE-поток JSON
+    POST /shutdown -> остановка сервера
+    """
+    def __init__(self, data_provider, host: str = "127.0.0.1", port: int = 8765, stream_interval: float = 0.2):
+        self.host = host
+        self.port = int(port)
+        self.stream_interval = max(0.05, float(stream_interval))
+        self._data_provider = data_provider
+        self._httpd: Optional[ThreadingHTTPServer] = None
+        self._thread: Optional[threading.Thread] = None
+
+    def is_running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
+    def _is_port_in_use(self) -> bool:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(1.0)
+            try:
+                sock.connect((self.host, self.port))
+                return True
+            except (OSError, ValueError):
+                return False
+
+    def _stop_existing_server(self):
+        # Пытаемся корректно остановить прежний экземпляр на том же порту.
+        try:
+            req = urllib_request.Request(
+                f"http://{self.host}:{self.port}/shutdown",
+                data=b"",
+                method="POST",
+            )
+            urllib_request.urlopen(req, timeout=2).read()
+        except Exception:
+            return
+
+        for _ in range(10):
+            if not self._is_port_in_use():
+                break
+            time.sleep(0.2)
+
+    def start(self):
+        if self.is_running():
+            return
+
+        if self._is_port_in_use():
+            self._stop_existing_server()
+
+        owner = self
+
+        class ResultsHandler(BaseHTTPRequestHandler):
+            def _send_json(self, payload: Dict[str, object], status: int = 200):
+                raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+            def _send_html(self, html: str, status: int = 200):
+                raw = html.encode("utf-8")
+                self.send_response(status)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+            def _stream_sse(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Connection", "keep-alive")
+                self.end_headers()
+
+                while owner.is_running():
+                    payload = owner._data_provider()
+                    event = f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8")
+                    try:
+                        self.wfile.write(event)
+                        self.wfile.flush()
+                    except (BrokenPipeError, ConnectionResetError, OSError):
+                        break
+                    time.sleep(owner.stream_interval)
+
+            def _stream_page_html(self) -> str:
+                return """<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NeuroTrack • Live Dashboard</title>
+<style>
+:root{--bg:#06070b;--panel:#0f1320cc;--line:#2a3652;--fg:#e8eeff;--muted:#98a7cc;--ok:#38d39f;--warn:#ff8a7a;--att1:#34d399;--att2:#10b981;--med1:#60a5fa;--med2:#3b82f6;--bl1:#ff9d5c;--bl2:#ef4444}
+*{box-sizing:border-box}
+body{margin:0;color:var(--fg);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:
+radial-gradient(900px 500px at 10% -20%, #1e2f5f 0%, transparent 60%),
+radial-gradient(1000px 600px at 110% 10%, #4a2c47 0%, transparent 60%),
+linear-gradient(170deg,#05070d,#0a1021 45%,#090d17)}
+.wrap{max-width:1150px;margin:20px auto;padding:0 16px}
+.top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.title{font-weight:900;font-size:31px;letter-spacing:.02em}
+.subtitle{font-size:13px;color:var(--muted)}
+.badges{display:flex;gap:8px;flex-wrap:wrap}
+.badge{padding:7px 11px;border-radius:999px;border:1px solid var(--line);background:#0e1628;font-size:12px;color:#bcd0ff}
+.badge.ok{background:#0f2a22;border-color:#2d7e67;color:#8ff0ce}
+.badge.err{background:#311922;border-color:#7f4052;color:#ffc9d4}
+.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px;backdrop-filter: blur(6px);box-shadow:0 12px 40px rgba(0,0,0,.35)}
+.metric{grid-column:span 4}
+@media (max-width:920px){.metric{grid-column:span 12}}
+.name{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-bottom:8px}
+.value{font-size:44px;font-weight:900;line-height:1;margin-bottom:8px}
+.track{height:10px;background:#1d2942;border-radius:999px;overflow:hidden}
+.fill{height:100%;width:0;border-radius:999px;transition:width .12s linear}
+.att{background:linear-gradient(90deg,var(--att1),var(--att2))}
+.med{background:linear-gradient(90deg,var(--med1),var(--med2))}
+.bli{background:linear-gradient(90deg,var(--bl1),var(--bl2))}
+.side{grid-column:span 12}
+.meta{display:flex;justify-content:space-between;gap:14px;align-items:center;color:var(--muted);font-size:13px;margin-bottom:10px;flex-wrap:wrap}
+pre{margin:0;background:#0a1224;border:1px solid #213459;border-radius:12px;padding:12px;max-height:280px;overflow:auto;color:#d6e6ff}
+.kv{display:flex;gap:10px;align-items:center}
+.dot{width:10px;height:10px;border-radius:50%;background:#667aab}
+.dot.ok{background:var(--ok)}
+.dot.err{background:var(--warn)}
+.hint{font-size:12px;color:var(--muted);margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <div class="title">NeuroTrack • Live Dashboard</div>
+      <div class="subtitle">Поток: <code>/stream/data</code> • Формат: <code>{"n":{"a":A,"m":M,"b":B}}</code></div>
+    </div>
+    <div class="badges">
+      <div id="conn" class="badge">connecting…</div>
+      <div id="blinkTx" class="badge">blink: waiting…</div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <section class="card metric">
+      <div class="name">Attention (a)</div>
+      <div id="aVal" class="value">0%</div>
+      <div class="track"><div id="aBar" class="fill att"></div></div>
+    </section>
+
+    <section class="card metric">
+      <div class="name">Meditation (m)</div>
+      <div id="mVal" class="value">0%</div>
+      <div class="track"><div id="mBar" class="fill med"></div></div>
+    </section>
+
+    <section class="card metric">
+      <div class="name">Blink (b)</div>
+      <div id="bVal" class="value">0%</div>
+      <div class="track"><div id="bBar" class="fill bli"></div></div>
+    </section>
+
+    <section class="card side">
+      <div class="meta">
+        <div class="kv"><span id="pktDot" class="dot"></span><span id="pktInfo">Нет входящих событий</span></div>
+        <div>Последнее обновление: <b id="updated">—</b></div>
+      </div>
+      <pre id="raw">Ожидание данных…</pre>
+      <div class="hint">Если поле <code>n.b</code> отсутствует, индикатор blink станет красным.</div>
+    </section>
+  </div>
+</div>
+
+<script>
+const clamp=v=>Math.max(0,Math.min(100,Number(v)||0));
+const raw=document.getElementById('raw');
+const conn=document.getElementById('conn');
+const blinkTx=document.getElementById('blinkTx');
+const updated=document.getElementById('updated');
+const pktDot=document.getElementById('pktDot');
+const pktInfo=document.getElementById('pktInfo');
+const aVal=document.getElementById('aVal');
+const mVal=document.getElementById('mVal');
+const bVal=document.getElementById('bVal');
+const aBar=document.getElementById('aBar');
+const mBar=document.getElementById('mBar');
+const bBar=document.getElementById('bBar');
+
+function setBadge(el,text,kind){el.textContent=text;el.classList.remove('ok','err');if(kind)el.classList.add(kind)}
+
+function paint(obj){
+  const n=(obj&&obj.n)?obj.n:{};
+  const hasBlink=Object.prototype.hasOwnProperty.call(n,'b');
+  const a=clamp(n.a), m=clamp(n.m), b=clamp(n.b);
+
+  aVal.textContent=`${a}%`; mVal.textContent=`${m}%`; bVal.textContent=`${b}%`;
+  aBar.style.width=`${a}%`; mBar.style.width=`${m}%`; bBar.style.width=`${b}%`;
+
+  raw.textContent=JSON.stringify(obj,null,2);
+  updated.textContent=new Date().toLocaleTimeString();
+  pktDot.classList.remove('err'); pktDot.classList.add('ok');
+  pktInfo.textContent='Пакет получен';
+
+  if(hasBlink){
+    setBadge(blinkTx,`blink: OK (${b}%)`,'ok');
+  }else{
+    setBadge(blinkTx,'blink: missing field b','err');
+    pktDot.classList.remove('ok'); pktDot.classList.add('err');
+    pktInfo.textContent='Внимание: в пакете нет поля n.b';
+  }
+}
+
+const es=new EventSource('/stream/data');
+es.onopen=()=>setBadge(conn,'live','ok');
+es.onmessage=(ev)=>{try{paint(JSON.parse(ev.data));}catch(_){raw.textContent=ev.data;}};
+es.onerror=()=>setBadge(conn,'reconnecting…','err');
+</script>
+</body>
+</html>"""
+
+
+            def do_GET(self):
+                if self.path in ("/stream", "/stream/events"):
+                    self._send_html(self._stream_page_html())
+                elif self.path == "/stream/data":
+                    self._stream_sse()
+                else:
+                    self._send_json({"error": "not found"}, status=404)
+
+            def do_POST(self):
+                if self.path == "/shutdown":
+                    self._send_json({"status": "shutting down"})
+                    threading.Thread(target=owner.stop, daemon=True).start()
+                else:
+                    self._send_json({"error": "not found"}, status=404)
+
+            def log_message(self, format, *args):
+                # подавляем стандартный вывод BaseHTTPRequestHandler
+                return
+
+        try:
+            self._httpd = ThreadingHTTPServer((self.host, self.port), ResultsHandler)
+        except Exception as e:
+            print(f"Не удалось запустить localhost-сервер {self.host}:{self.port}: {e}")
+            self._httpd = None
+            self._thread = None
+            return
+
+        def run_server():
+            assert self._httpd is not None
+            try:
+                self._httpd.serve_forever(poll_interval=0.2)
+            finally:
+                try:
+                    self._httpd.server_close()
+                except Exception:
+                    pass
+
+        self._thread = threading.Thread(target=run_server, daemon=True)
+        self._thread.start()
+        print(f"Localhost-сервер запущен: http://{self.host}:{self.port}/stream, /stream/events и /stream/data")
+
+    def stop(self):
+        if self._httpd:
+            try:
+                self._httpd.shutdown()
+            except Exception:
+                pass
+            try:
+                self._httpd.server_close()
+            except Exception:
+                pass
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2.0)
+        self._thread = None
+        self._httpd = None
+
+
+# ==============================
 # --- UI
 # ==============================
 def nice_state_color(s: str) -> str:
@@ -500,17 +784,75 @@ class BridgeUI(QtWidgets.QWidget):
         self.resize(1100, 760)
 
         self.setStyleSheet("""
-            QWidget { background:#0f0f12; color:#f0f0f0; font-family:'Segoe UI','Noto Sans','DejaVu Sans',sans-serif; font-size:11pt; }
-            QGroupBox { border:1px solid #2a2a33; border-radius:10px; margin-top:12px; padding-top:10px; }
-            QGroupBox::title { color:#ff9f1a; font-weight:600; left:10px; }
-            QPushButton { border:none; color:#000; background-color:#ff9f1a; padding:8px 18px; border-radius:18px; font-weight:600; }
-            QPushButton:hover { background-color:#ffb43c; }
-            QComboBox { padding:6px; border-radius:10px; background:#18191e; border:1px solid #2a2a33; }
-            QLabel { color:#f0f0f0; }
-            QSpinBox { padding:4px; border-radius:10px; background:#18191e; border:1px solid #2a2a33; }
+            QWidget {
+                color:#eaf2ff;
+                font-family:'Noto Sans','DejaVu Sans','Arial',sans-serif;
+                font-size:11pt;
+                background:qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #070b16, stop:0.45 #0a1225, stop:1 #111733);
+            }
+            QGroupBox {
+                border:1px solid #24365f;
+                border-radius:16px;
+                margin-top:14px;
+                padding:14px;
+                background:rgba(12, 20, 40, 0.72);
+            }
+            QGroupBox::title {
+                color:#8fb6ff;
+                font-weight:700;
+                left:14px;
+                top:2px;
+                padding:0 6px;
+            }
+            QPushButton {
+                border:1px solid #395ba2;
+                color:#eaf2ff;
+                background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #365efc, stop:1 #5f8bff);
+                padding:9px 20px;
+                border-radius:12px;
+                font-weight:700;
+            }
+            QPushButton:hover { background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #4872ff, stop:1 #79a0ff); }
+            QPushButton:pressed { background:#2a4fd8; }
+            QComboBox, QSpinBox {
+                padding:7px;
+                border-radius:10px;
+                background:#0c152a;
+                border:1px solid #2c4479;
+                color:#e9f0ff;
+            }
+            QCheckBox { spacing:8px; }
+            QLabel#heroTitle { font-size:16pt; font-weight:800; color:#f5f8ff; }
+            QLabel#heroSub { color:#a8bde4; font-size:10.5pt; }
+            QLabel#footerBar {
+                background:rgba(10,18,36,.75);
+                border:1px solid #24365f;
+                border-radius:10px;
+                padding:8px 12px;
+            }
         """)
 
         root = QtWidgets.QVBoxLayout(self)
+        root.setContentsMargins(14, 12, 14, 12)
+        root.setSpacing(10)
+
+        hero = QtWidgets.QFrame()
+        hero.setStyleSheet("QFrame { background:rgba(12,22,44,0.72); border:1px solid #2d4375; border-radius:14px; }")
+        hero_l = QtWidgets.QHBoxLayout(hero)
+        hero_l.setContentsMargins(14, 10, 14, 10)
+        hero_txt = QtWidgets.QVBoxLayout()
+        title = QtWidgets.QLabel("NeuroTrack Command Center")
+        title.setObjectName("heroTitle")
+        subtitle = QtWidgets.QLabel("Real-time NeuroTrack metrics, Trackduino communication, and local /stream endpoint")
+        subtitle.setObjectName("heroSub")
+        hero_txt.addWidget(title)
+        hero_txt.addWidget(subtitle)
+        hero_l.addLayout(hero_txt, 1)
+        self.badge_live = QtWidgets.QLabel("● LOCAL STREAM: http://127.0.0.1:8765/stream")
+        self.badge_live.setStyleSheet("QLabel { color:#c4d7ff; font-size:10pt; font-weight:600; }")
+        hero_l.addWidget(self.badge_live, 0, QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+        root.addWidget(hero)
 
         # --- Ports box ---
         ports_box = QtWidgets.QGroupBox("Порты устройств")
@@ -585,8 +927,8 @@ class BridgeUI(QtWidgets.QWidget):
 
         # --- Plot ---
         self.plot = pg.PlotWidget()
-        self.plot.setBackground("#050506")
-        self.plot.showGrid(x=True, y=True, alpha=0.25)
+        self.plot.setBackground("#091126")
+        self.plot.showGrid(x=True, y=True, alpha=0.18)
         self.plot.addLegend()
         self.plot.setYRange(0, 100)
         self.plot.setLimits(yMin=0, yMax=100)
@@ -594,14 +936,15 @@ class BridgeUI(QtWidgets.QWidget):
         self.plot.setLabel("left", "Уровень", units="%")
         self.plot.setLabel("bottom", "Время", units="сек")
 
-        self.curve_a = self.plot.plot(pen=pg.mkPen("#00ff99", width=2), name="Концентрация")
-        self.curve_m = self.plot.plot(pen=pg.mkPen("#00bfff", width=2), name="Медитация")
-        self.curve_b = self.plot.plot(pen=pg.mkPen("#ff6666", width=1.5), name="Моргание")
+        self.curve_a = self.plot.plot(pen=pg.mkPen("#49e6a3", width=2.6), name="Концентрация")
+        self.curve_m = self.plot.plot(pen=pg.mkPen("#64beff", width=2.6), name="Медитация")
+        self.curve_b = self.plot.plot(pen=pg.mkPen("#ff8f73", width=2.0), name="Моргание")
 
         root.addWidget(self.plot, 1)
 
         # --- Footer ---
         self.lbl_ports = QtWidgets.QLabel("🧠 NeuroTrack: —   |   🤖 Trackduino: —")
+        self.lbl_ports.setObjectName("footerBar")
         root.addWidget(self.lbl_ports)
 
         # === internal state ===
@@ -625,6 +968,10 @@ class BridgeUI(QtWidgets.QWidget):
         self._last_neuro_state = ""
         self._last_track_state = ""
         self._last_toast_ts = 0.0
+
+        # HTTP-экспорт текущих данных на localhost
+        self.local_server = LocalhostDataServer(self._collect_export_payload, "127.0.0.1", 8765)
+        self.local_server.start()
 
         # initial ports list
         self.refresh_ports()
@@ -750,6 +1097,24 @@ class BridgeUI(QtWidgets.QWidget):
         self.btn_connect.setText("Подключить")
         self.status_label.setText("Ожидание подключения…")
 
+    def closeEvent(self, event):
+        try:
+            self.local_server.stop()
+        except Exception:
+            pass
+        super().closeEvent(event)
+
+    def _collect_export_payload(self) -> Dict[str, object]:
+        # Формат строго по требованию интеграции:
+        # <{"n":{"a":A,"m":M,"b":B}}>
+        return {
+            "n": {
+                "a": int(self.cur_a),
+                "m": int(self.cur_m),
+                "b": int(self.cur_b),
+            }
+        }
+
     # ---------- status handlers ----------
     def on_neuro_status(self, s: str):
         self._last_neuro_state = s
@@ -854,13 +1219,32 @@ class BridgeUI(QtWidgets.QWidget):
 # ==============================
 # --- Запуск приложения
 # ==============================
-def main():
+def main() -> int:
     app = QtWidgets.QApplication(sys.argv)
     pg.setConfigOptions(antialias=True)
     w = BridgeUI()
     w.show()
-    sys.exit(app.exec_())
+
+    # Позволяет корректно завершать Qt-приложение по Ctrl+C без traceback.
+    if hasattr(signal, "SIGINT"):
+        signal.signal(signal.SIGINT, lambda *_: app.quit())
+
+    # Пустой таймер, чтобы Python регулярно обрабатывал сигналы,
+    # пока event loop Qt активен.
+    sig_timer = QtCore.QTimer()
+    sig_timer.start(200)
+    sig_timer.timeout.connect(lambda: None)
+
+    try:
+        return int(app.exec_())
+    except KeyboardInterrupt:
+        return 0
+    finally:
+        try:
+            w.local_server.stop()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
