@@ -927,10 +927,22 @@ class BridgeUI(QtWidgets.QWidget):
         bars_panel = QtWidgets.QFrame()
         bars_panel.setStyleSheet("QFrame{background:rgba(8,16,32,.45); border:1px solid #24365f; border-radius:12px;}")
         bars_layout = QtWidgets.QVBoxLayout(bars_panel)
-        bars_layout.setContentsMargins(8, 10, 8, 10)
-        bars_layout.setSpacing(10)
-        bars_panel.setMinimumWidth(86)
+        bars_layout.setContentsMargins(10, 10, 10, 10)
+        bars_layout.setSpacing(8)
+        bars_panel.setMinimumWidth(170)
+
+        for bar in (self.vbar_a, self.vbar_m):
+            bar.setTextVisible(False)
+            bar.setFixedHeight(190)
+
+        self.lbl_a_val = QtWidgets.QLabel("Концентрация: 0%")
+        self.lbl_m_val = QtWidgets.QLabel("Медитация: 0%")
+        self.lbl_a_val.setStyleSheet("font-weight:700; color:#a5ffcf;")
+        self.lbl_m_val.setStyleSheet("font-weight:700; color:#9bd8ff;")
+
+        bars_layout.addWidget(self.lbl_a_val)
         bars_layout.addWidget(self.vbar_a, 1)
+        bars_layout.addWidget(self.lbl_m_val)
         bars_layout.addWidget(self.vbar_m, 1)
 
         content_layout.addWidget(bars_panel, 0)
@@ -1138,9 +1150,11 @@ class BridgeUI(QtWidgets.QWidget):
         self.cur_b = int(max(0, min(100, b)))
         self.cur_poor = int(max(0, min(200, poor)))
 
-        # Обновляем правые индикаторы сразу при приходе данных (без ожидания on_periodic).
+        # Обновляем индикаторы сразу при приходе данных (без ожидания on_periodic).
         self.vbar_a.setValue(self.cur_a)
         self.vbar_m.setValue(self.cur_m)
+        self.lbl_a_val.setText(f"Концентрация: {self.cur_a}%")
+        self.lbl_m_val.setText(f"Медитация: {self.cur_m}%")
 
         # neuro OK: poor==0 и есть актуальные данные
         neuro_ok = (self.cur_poor == 0) and (self._last_neuro_state == "Подключено")
@@ -1175,6 +1189,8 @@ class BridgeUI(QtWidgets.QWidget):
 
         self.vbar_a.setValue(self.cur_a)
         self.vbar_m.setValue(self.cur_m)
+        self.lbl_a_val.setText(f"Концентрация: {self.cur_a}%")
+        self.lbl_m_val.setText(f"Медитация: {self.cur_m}%")
 
 
     # ---------- autoconnect ----------
