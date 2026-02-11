@@ -488,7 +488,8 @@ class LocalhostDataServer:
     """
     HTTP-сервер для выдачи текущих данных NeuroTrack на localhost.
     GET  /results  -> моментальный JSON-снимок
-    GET  /stream   -> непрерывный NDJSON-поток
+    GET  /stream   -> веб-страница с live-обновлением данных
+    GET  /stream/events -> непрерывный SSE-поток JSON
     POST /shutdown -> остановка сервера
     """
     def __init__(self, data_provider, host: str = "127.0.0.1", port: int = 8765, stream_interval: float = 0.2):
@@ -546,18 +547,26 @@ class LocalhostDataServer:
                 self.end_headers()
                 self.wfile.write(raw)
 
-            def _stream_ndjson(self):
+            def _send_html(self, html: str, status: int = 200):
+                raw = html.encode("utf-8")
+                self.send_response(status)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+            def _stream_sse(self):
                 self.send_response(200)
-                self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+                self.send_header("Content-Type", "text/event-stream; charset=utf-8")
                 self.send_header("Cache-Control", "no-cache")
                 self.send_header("Connection", "keep-alive")
                 self.end_headers()
 
                 while owner.is_running():
                     payload = owner._data_provider()
-                    line = (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
+                    event = f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8")
                     try:
-                        self.wfile.write(line)
+                        self.wfile.write(event)
                         self.wfile.flush()
                     except (BrokenPipeError, ConnectionResetError, OSError):
                         break
@@ -567,7 +576,25 @@ class LocalhostDataServer:
                 if self.path == "/results":
                     self._send_json(owner._data_provider())
                 elif self.path == "/stream":
-                    self._stream_ndjson()
+                    html = """<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><title>NeuroTrack stream</title>
+<style>
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#111;color:#eee;margin:0;padding:16px}
+pre{background:#1b1b1b;padding:12px;border-radius:8px;overflow:auto;max-height:70vh}
+.small{opacity:.8;font-size:.9em}
+</style></head><body>
+<h2>NeuroTrack live stream</h2>
+<div class="small">Источник: <code>/stream/events</code></div>
+<pre id="out">Ожидание данных...</pre>
+<script>
+const out=document.getElementById('out');
+const es=new EventSource('/stream/events');
+es.onmessage=(ev)=>{try{const obj=JSON.parse(ev.data);out.textContent=JSON.stringify(obj,null,2);}catch(e){out.textContent=ev.data;}};
+es.onerror=()=>{out.textContent='Соединение потеряно, пытаемся переподключиться...';};
+</script></body></html>"""
+                    self._send_html(html)
+                elif self.path == "/stream/events":
+                    self._stream_sse()
                 else:
                     self._send_json({"error": "not found"}, status=404)
 
@@ -602,7 +629,7 @@ class LocalhostDataServer:
 
         self._thread = threading.Thread(target=run_server, daemon=True)
         self._thread.start()
-        print(f"Localhost-сервер запущен: http://{self.host}:{self.port}/results и /stream")
+        print(f"Localhost-сервер запущен: http://{self.host}:{self.port}/results, /stream и /stream/events")
 
     def stop(self):
         if self._httpd:
@@ -921,6 +948,7 @@ class BridgeUI(QtWidgets.QWidget):
                 "port": self.local_server.port,
                 "results": f"http://{self.local_server.host}:{self.local_server.port}/results",
                 "stream": f"http://{self.local_server.host}:{self.local_server.port}/stream",
+                "stream_events": f"http://{self.local_server.host}:{self.local_server.port}/stream/events",
             },
         }
 
