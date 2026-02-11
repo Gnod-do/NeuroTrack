@@ -488,7 +488,8 @@ class LocalhostDataServer:
     """
     HTTP-сервер для выдачи текущих данных NeuroTrack на localhost.
     GET  /stream   -> веб-страница с live-обновлением данных
-    GET  /stream/events -> непрерывный SSE-поток JSON
+    GET  /stream/events -> та же веб-страница live-view
+    GET  /stream/data -> непрерывный SSE-поток JSON
     POST /shutdown -> остановка сервера
     """
     def __init__(self, data_provider, host: str = "127.0.0.1", port: int = 8765, stream_interval: float = 0.2):
@@ -571,9 +572,8 @@ class LocalhostDataServer:
                         break
                     time.sleep(owner.stream_interval)
 
-            def do_GET(self):
-                if self.path == "/stream":
-                    html = """<!doctype html>
+            def _stream_page_html(self) -> str:
+                return """<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><title>NeuroTrack stream</title>
 <style>
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#111;color:#eee;margin:0;padding:16px}
@@ -581,16 +581,19 @@ pre{background:#1b1b1b;padding:12px;border-radius:8px;overflow:auto;max-height:7
 .small{opacity:.8;font-size:.9em}
 </style></head><body>
 <h2>NeuroTrack live stream</h2>
-<div class="small">Источник: <code>/stream/events</code></div>
+<div class="small">Источник: <code>/stream/data</code></div>
 <pre id="out">Ожидание данных...</pre>
 <script>
 const out=document.getElementById('out');
-const es=new EventSource('/stream/events');
+const es=new EventSource('/stream/data');
 es.onmessage=(ev)=>{try{const obj=JSON.parse(ev.data);out.textContent=JSON.stringify(obj,null,2);}catch(e){out.textContent=ev.data;}};
 es.onerror=()=>{out.textContent='Соединение потеряно, пытаемся переподключиться...';};
 </script></body></html>"""
-                    self._send_html(html)
-                elif self.path == "/stream/events":
+
+            def do_GET(self):
+                if self.path in ("/stream", "/stream/events"):
+                    self._send_html(self._stream_page_html())
+                elif self.path == "/stream/data":
                     self._stream_sse()
                 else:
                     self._send_json({"error": "not found"}, status=404)
@@ -626,7 +629,7 @@ es.onerror=()=>{out.textContent='Соединение потеряно, пыта
 
         self._thread = threading.Thread(target=run_server, daemon=True)
         self._thread.start()
-        print(f"Localhost-сервер запущен: http://{self.host}:{self.port}/stream и /stream/events")
+        print(f"Localhost-сервер запущен: http://{self.host}:{self.port}/stream, /stream/events и /stream/data")
 
     def stop(self):
         if self._httpd:
