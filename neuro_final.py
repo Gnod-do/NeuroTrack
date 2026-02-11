@@ -487,7 +487,6 @@ class TrackBridge(QtCore.QThread):
 class LocalhostDataServer:
     """
     HTTP-сервер для выдачи текущих данных NeuroTrack на localhost.
-    GET  /results  -> моментальный JSON-снимок
     GET  /stream   -> веб-страница с live-обновлением данных
     GET  /stream/events -> непрерывный SSE-поток JSON
     POST /shutdown -> остановка сервера
@@ -573,9 +572,7 @@ class LocalhostDataServer:
                     time.sleep(owner.stream_interval)
 
             def do_GET(self):
-                if self.path == "/results":
-                    self._send_json(owner._data_provider())
-                elif self.path == "/stream":
+                if self.path == "/stream":
                     html = """<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><title>NeuroTrack stream</title>
 <style>
@@ -629,7 +626,7 @@ es.onerror=()=>{out.textContent='Соединение потеряно, пыта
 
         self._thread = threading.Thread(target=run_server, daemon=True)
         self._thread.start()
-        print(f"Localhost-сервер запущен: http://{self.host}:{self.port}/results, /stream и /stream/events")
+        print(f"Localhost-сервер запущен: http://{self.host}:{self.port}/stream и /stream/events")
 
     def stop(self):
         if self._httpd:
