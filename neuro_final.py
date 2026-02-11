@@ -13,7 +13,9 @@
 - обновление списка портов не чаще 1 раза в 10 секунд и без сброса выбранных портов;
 - уведомления (небольшие окна) на 20 секунд при отключении питания/потере порта/потере контакта.
 """
-import sys, time, json, threading, platform
+import sys, time, json, threading, platform, socket
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib import request as urllib_request
 from typing import List, Tuple, Optional, Dict
 
 from PyQt5 import QtWidgets, QtCore
@@ -480,6 +482,124 @@ class TrackBridge(QtCore.QThread):
 
 
 # ==============================
+# --- Localhost data server ---
+# ==============================
+class LocalhostDataServer:
+    """
+    HTTP-сервер для выдачи текущих данных NeuroTrack на localhost.
+    GET  /results  -> JSON с последними значениями
+    POST /shutdown -> остановка сервера
+    """
+    def __init__(self, data_provider, host: str = "127.0.0.1", port: int = 8765):
+        self.host = host
+        self.port = int(port)
+        self._data_provider = data_provider
+        self._httpd: Optional[ThreadingHTTPServer] = None
+        self._thread: Optional[threading.Thread] = None
+
+    def is_running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
+    def _is_port_in_use(self) -> bool:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(1.0)
+            try:
+                sock.connect((self.host, self.port))
+                return True
+            except (OSError, ValueError):
+                return False
+
+    def _stop_existing_server(self):
+        # Пытаемся корректно остановить прежний экземпляр на том же порту.
+        try:
+            req = urllib_request.Request(
+                f"http://{self.host}:{self.port}/shutdown",
+                data=b"",
+                method="POST",
+            )
+            urllib_request.urlopen(req, timeout=2).read()
+        except Exception:
+            return
+
+        for _ in range(10):
+            if not self._is_port_in_use():
+                break
+            time.sleep(0.2)
+
+    def start(self):
+        if self.is_running():
+            return
+
+        if self._is_port_in_use():
+            self._stop_existing_server()
+
+        owner = self
+
+        class ResultsHandler(BaseHTTPRequestHandler):
+            def _send_json(self, payload: Dict[str, object], status: int = 200):
+                raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+            def do_GET(self):
+                if self.path == "/results":
+                    self._send_json(owner._data_provider())
+                else:
+                    self._send_json({"error": "not found"}, status=404)
+
+            def do_POST(self):
+                if self.path == "/shutdown":
+                    self._send_json({"status": "shutting down"})
+                    threading.Thread(target=owner.stop, daemon=True).start()
+                else:
+                    self._send_json({"error": "not found"}, status=404)
+
+            def log_message(self, format, *args):
+                # подавляем стандартный вывод BaseHTTPRequestHandler
+                return
+
+        try:
+            self._httpd = ThreadingHTTPServer((self.host, self.port), ResultsHandler)
+        except Exception as e:
+            print(f"Не удалось запустить localhost-сервер {self.host}:{self.port}: {e}")
+            self._httpd = None
+            self._thread = None
+            return
+
+        def run_server():
+            assert self._httpd is not None
+            try:
+                self._httpd.serve_forever(poll_interval=0.2)
+            finally:
+                try:
+                    self._httpd.server_close()
+                except Exception:
+                    pass
+
+        self._thread = threading.Thread(target=run_server, daemon=True)
+        self._thread.start()
+        print(f"Localhost-сервер запущен на http://{self.host}:{self.port}/results")
+
+    def stop(self):
+        if self._httpd:
+            try:
+                self._httpd.shutdown()
+            except Exception:
+                pass
+            try:
+                self._httpd.server_close()
+            except Exception:
+                pass
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2.0)
+        self._thread = None
+        self._httpd = None
+
+
+# ==============================
 # --- UI
 # ==============================
 def nice_state_color(s: str) -> str:
@@ -626,6 +746,9 @@ class BridgeUI(QtWidgets.QWidget):
         self._last_track_state = ""
         self._last_toast_ts = 0.0
 
+        # HTTP-экспорт текущих данных на localhost
+        self.local_server = LocalhostDataServer(self._collect_export_payload, "127.0.0.1", 8765)
+
         # initial ports list
         self.refresh_ports()
 
@@ -726,6 +849,7 @@ class BridgeUI(QtWidgets.QWidget):
         self._connected = True
         self.btn_connect.setText("Отключить")
         self.lbl_ports.setText(f"🧠 NeuroTrack: {neuro}   |   🤖 Trackduino: {track or '—'}")
+        self.local_server.start()
 
     def _disconnect_all(self):
         self._connected = False
@@ -746,9 +870,38 @@ class BridgeUI(QtWidgets.QWidget):
 
         self.reader = None
         self.bridge = None
+        self.local_server.stop()
 
         self.btn_connect.setText("Подключить")
         self.status_label.setText("Ожидание подключения…")
+
+    def closeEvent(self, event):
+        try:
+            self.local_server.stop()
+        except Exception:
+            pass
+        super().closeEvent(event)
+
+    def _collect_export_payload(self) -> Dict[str, object]:
+        return {
+            "timestamp": time.time(),
+            "connected": self._connected,
+            "status": {
+                "neuro": self._last_neuro_state or "Отключено",
+                "trackduino": self._last_track_state or "Отключено",
+            },
+            "values": {
+                "attention": self.cur_a,
+                "meditation": self.cur_m,
+                "blink": self.cur_b,
+                "poor_signal": self.cur_poor,
+            },
+            "port": {
+                "host": self.local_server.host,
+                "port": self.local_server.port,
+                "endpoint": f"http://{self.local_server.host}:{self.local_server.port}/results",
+            },
+        }
 
     # ---------- status handlers ----------
     def on_neuro_status(self, s: str):
