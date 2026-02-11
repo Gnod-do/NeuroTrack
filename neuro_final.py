@@ -578,74 +578,94 @@ class LocalhostDataServer:
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NeuroTrack Live</title>
+<title>NeuroTrack • Live Dashboard</title>
 <style>
-:root{--bg:#080b16;--bg2:#111a2d;--fg:#e8f2ff;--muted:#95a8c7;--acc:#7a9dff;--a:#46d39a;--m:#53b7ff;--b:#ff8f70;}
+:root{--bg:#06070b;--panel:#0f1320cc;--line:#2a3652;--fg:#e8eeff;--muted:#98a7cc;--ok:#38d39f;--warn:#ff8a7a;--att1:#34d399;--att2:#10b981;--med1:#60a5fa;--med2:#3b82f6;--bl1:#ff9d5c;--bl2:#ef4444}
 *{box-sizing:border-box}
-body{margin:0;min-height:100vh;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--fg);background:radial-gradient(1200px 700px at 80% -10%, #24365e 0%, transparent 45%),linear-gradient(160deg,var(--bg),var(--bg2));}
-.wrap{max-width:1050px;margin:24px auto;padding:0 16px}
-.head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:20px}
-.h1{font-size:30px;font-weight:800;letter-spacing:.2px}
-.sub{color:var(--muted);font-size:14px}
-.grid{display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:14px}
-@media (max-width:800px){.grid{grid-template-columns:1fr}}
-.card{background:linear-gradient(180deg,#121a2f,#0f1627);border:1px solid #273657;border-radius:16px;padding:16px 14px;box-shadow:0 8px 28px rgba(0,0,0,.24)}
-.name{font-size:13px;text-transform:uppercase;letter-spacing:.11em;color:var(--muted);margin-bottom:8px}
-.val{font-size:42px;font-weight:800;line-height:1;margin-bottom:10px}
-.bar{height:10px;background:#202d4a;border-radius:999px;overflow:hidden}
-.fill{height:100%;border-radius:999px;transition:width .15s linear}
-.a{background:linear-gradient(90deg,#2fbf83,#63f2bf)}
-.m{background:linear-gradient(90deg,#2f8dff,#65d9ff)}
-.b{background:linear-gradient(90deg,#ff6b64,#ffbf73)}
-.panel{margin-top:14px;background:#0e1628;border:1px solid #273657;border-radius:16px;padding:14px}
-.row{display:flex;justify-content:space-between;gap:16px;align-items:center;color:var(--muted);font-size:13px;margin-bottom:8px}
-pre{margin:0;background:#0a1222;border:1px solid #1f2e4f;border-radius:10px;padding:12px;color:#d6e6ff;overflow:auto;max-height:240px}
-.status{display:inline-block;padding:6px 10px;border-radius:999px;background:#1c2d50;border:1px solid #2e4880;color:#b8d1ff;font-size:12px}
-.status.err{background:#3a1f27;border-color:#7e3d4f;color:#ffc2ce}
+body{margin:0;color:var(--fg);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:
+radial-gradient(900px 500px at 10% -20%, #1e2f5f 0%, transparent 60%),
+radial-gradient(1000px 600px at 110% 10%, #4a2c47 0%, transparent 60%),
+linear-gradient(170deg,#05070d,#0a1021 45%,#090d17)}
+.wrap{max-width:1150px;margin:20px auto;padding:0 16px}
+.top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.title{font-weight:900;font-size:31px;letter-spacing:.02em}
+.subtitle{font-size:13px;color:var(--muted)}
+.badges{display:flex;gap:8px;flex-wrap:wrap}
+.badge{padding:7px 11px;border-radius:999px;border:1px solid var(--line);background:#0e1628;font-size:12px;color:#bcd0ff}
+.badge.ok{background:#0f2a22;border-color:#2d7e67;color:#8ff0ce}
+.badge.err{background:#311922;border-color:#7f4052;color:#ffc9d4}
+.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px;backdrop-filter: blur(6px);box-shadow:0 12px 40px rgba(0,0,0,.35)}
+.metric{grid-column:span 4}
+@media (max-width:920px){.metric{grid-column:span 12}}
+.name{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-bottom:8px}
+.value{font-size:44px;font-weight:900;line-height:1;margin-bottom:8px}
+.track{height:10px;background:#1d2942;border-radius:999px;overflow:hidden}
+.fill{height:100%;width:0;border-radius:999px;transition:width .12s linear}
+.att{background:linear-gradient(90deg,var(--att1),var(--att2))}
+.med{background:linear-gradient(90deg,var(--med1),var(--med2))}
+.bli{background:linear-gradient(90deg,var(--bl1),var(--bl2))}
+.side{grid-column:span 12}
+.meta{display:flex;justify-content:space-between;gap:14px;align-items:center;color:var(--muted);font-size:13px;margin-bottom:10px;flex-wrap:wrap}
+pre{margin:0;background:#0a1224;border:1px solid #213459;border-radius:12px;padding:12px;max-height:280px;overflow:auto;color:#d6e6ff}
+.kv{display:flex;gap:10px;align-items:center}
+.dot{width:10px;height:10px;border-radius:50%;background:#667aab}
+.dot.ok{background:var(--ok)}
+.dot.err{background:var(--warn)}
+.hint{font-size:12px;color:var(--muted);margin-top:8px}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="head">
+  <div class="top">
     <div>
-      <div class="h1">NeuroTrack Live Stream</div>
-      <div class="sub">Источник данных: <code>/stream/data</code></div>
+      <div class="title">NeuroTrack • Live Dashboard</div>
+      <div class="subtitle">Поток: <code>/stream/data</code> • Формат: <code>{"n":{"a":A,"m":M,"b":B}}</code></div>
     </div>
-    <div id="conn" class="status">connecting...</div>
+    <div class="badges">
+      <div id="conn" class="badge">connecting…</div>
+      <div id="blinkTx" class="badge">blink: waiting…</div>
+    </div>
   </div>
 
   <div class="grid">
-    <div class="card">
+    <section class="card metric">
       <div class="name">Attention (a)</div>
-      <div id="aVal" class="val">0%</div>
-      <div class="bar"><div id="aBar" class="fill a" style="width:0%"></div></div>
-    </div>
-    <div class="card">
-      <div class="name">Meditation (m)</div>
-      <div id="mVal" class="val">0%</div>
-      <div class="bar"><div id="mBar" class="fill m" style="width:0%"></div></div>
-    </div>
-    <div class="card">
-      <div class="name">Blink (b)</div>
-      <div id="bVal" class="val">0%</div>
-      <div class="bar"><div id="bBar" class="fill b" style="width:0%"></div></div>
-    </div>
-  </div>
+      <div id="aVal" class="value">0%</div>
+      <div class="track"><div id="aBar" class="fill att"></div></div>
+    </section>
 
-  <div class="panel">
-    <div class="row">
-      <span>Последнее обновление:</span>
-      <span id="updated">—</span>
-    </div>
-    <pre id="raw">Ожидание данных...</pre>
+    <section class="card metric">
+      <div class="name">Meditation (m)</div>
+      <div id="mVal" class="value">0%</div>
+      <div class="track"><div id="mBar" class="fill med"></div></div>
+    </section>
+
+    <section class="card metric">
+      <div class="name">Blink (b)</div>
+      <div id="bVal" class="value">0%</div>
+      <div class="track"><div id="bBar" class="fill bli"></div></div>
+    </section>
+
+    <section class="card side">
+      <div class="meta">
+        <div class="kv"><span id="pktDot" class="dot"></span><span id="pktInfo">Нет входящих событий</span></div>
+        <div>Последнее обновление: <b id="updated">—</b></div>
+      </div>
+      <pre id="raw">Ожидание данных…</pre>
+      <div class="hint">Если поле <code>n.b</code> отсутствует, индикатор blink станет красным.</div>
+    </section>
   </div>
 </div>
 
 <script>
-const clamp=(v)=>Math.max(0,Math.min(100,Number(v)||0));
+const clamp=v=>Math.max(0,Math.min(100,Number(v)||0));
 const raw=document.getElementById('raw');
 const conn=document.getElementById('conn');
+const blinkTx=document.getElementById('blinkTx');
 const updated=document.getElementById('updated');
+const pktDot=document.getElementById('pktDot');
+const pktInfo=document.getElementById('pktInfo');
 const aVal=document.getElementById('aVal');
 const mVal=document.getElementById('mVal');
 const bVal=document.getElementById('bVal');
@@ -653,25 +673,38 @@ const aBar=document.getElementById('aBar');
 const mBar=document.getElementById('mBar');
 const bBar=document.getElementById('bBar');
 
+function setBadge(el,text,kind){el.textContent=text;el.classList.remove('ok','err');if(kind)el.classList.add(kind)}
+
 function paint(obj){
   const n=(obj&&obj.n)?obj.n:{};
+  const hasBlink=Object.prototype.hasOwnProperty.call(n,'b');
   const a=clamp(n.a), m=clamp(n.m), b=clamp(n.b);
+
   aVal.textContent=`${a}%`; mVal.textContent=`${m}%`; bVal.textContent=`${b}%`;
   aBar.style.width=`${a}%`; mBar.style.width=`${m}%`; bBar.style.width=`${b}%`;
-  updated.textContent=new Date().toLocaleTimeString();
+
   raw.textContent=JSON.stringify(obj,null,2);
+  updated.textContent=new Date().toLocaleTimeString();
+  pktDot.classList.remove('err'); pktDot.classList.add('ok');
+  pktInfo.textContent='Пакет получен';
+
+  if(hasBlink){
+    setBadge(blinkTx,`blink: OK (${b}%)`,'ok');
+  }else{
+    setBadge(blinkTx,'blink: missing field b','err');
+    pktDot.classList.remove('ok'); pktDot.classList.add('err');
+    pktInfo.textContent='Внимание: в пакете нет поля n.b';
+  }
 }
 
 const es=new EventSource('/stream/data');
-es.onopen=()=>{conn.textContent='live'; conn.classList.remove('err');};
-es.onmessage=(ev)=>{
-  try{paint(JSON.parse(ev.data));}
-  catch(_){raw.textContent=ev.data;}
-};
-es.onerror=()=>{conn.textContent='reconnecting...'; conn.classList.add('err');};
+es.onopen=()=>setBadge(conn,'live','ok');
+es.onmessage=(ev)=>{try{paint(JSON.parse(ev.data));}catch(_){raw.textContent=ev.data;}};
+es.onerror=()=>setBadge(conn,'reconnecting…','err');
 </script>
 </body>
 </html>"""
+
 
             def do_GET(self):
                 if self.path in ("/stream", "/stream/events"):
