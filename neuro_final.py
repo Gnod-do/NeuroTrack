@@ -574,21 +574,104 @@ class LocalhostDataServer:
 
             def _stream_page_html(self) -> str:
                 return """<!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><title>NeuroTrack stream</title>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NeuroTrack Live</title>
 <style>
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#111;color:#eee;margin:0;padding:16px}
-pre{background:#1b1b1b;padding:12px;border-radius:8px;overflow:auto;max-height:70vh}
-.small{opacity:.8;font-size:.9em}
-</style></head><body>
-<h2>NeuroTrack live stream</h2>
-<div class="small">Источник: <code>/stream/data</code></div>
-<pre id="out">Ожидание данных...</pre>
+:root{--bg:#080b16;--bg2:#111a2d;--fg:#e8f2ff;--muted:#95a8c7;--acc:#7a9dff;--a:#46d39a;--m:#53b7ff;--b:#ff8f70;}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--fg);background:radial-gradient(1200px 700px at 80% -10%, #24365e 0%, transparent 45%),linear-gradient(160deg,var(--bg),var(--bg2));}
+.wrap{max-width:1050px;margin:24px auto;padding:0 16px}
+.head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+.h1{font-size:30px;font-weight:800;letter-spacing:.2px}
+.sub{color:var(--muted);font-size:14px}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:14px}
+@media (max-width:800px){.grid{grid-template-columns:1fr}}
+.card{background:linear-gradient(180deg,#121a2f,#0f1627);border:1px solid #273657;border-radius:16px;padding:16px 14px;box-shadow:0 8px 28px rgba(0,0,0,.24)}
+.name{font-size:13px;text-transform:uppercase;letter-spacing:.11em;color:var(--muted);margin-bottom:8px}
+.val{font-size:42px;font-weight:800;line-height:1;margin-bottom:10px}
+.bar{height:10px;background:#202d4a;border-radius:999px;overflow:hidden}
+.fill{height:100%;border-radius:999px;transition:width .15s linear}
+.a{background:linear-gradient(90deg,#2fbf83,#63f2bf)}
+.m{background:linear-gradient(90deg,#2f8dff,#65d9ff)}
+.b{background:linear-gradient(90deg,#ff6b64,#ffbf73)}
+.panel{margin-top:14px;background:#0e1628;border:1px solid #273657;border-radius:16px;padding:14px}
+.row{display:flex;justify-content:space-between;gap:16px;align-items:center;color:var(--muted);font-size:13px;margin-bottom:8px}
+pre{margin:0;background:#0a1222;border:1px solid #1f2e4f;border-radius:10px;padding:12px;color:#d6e6ff;overflow:auto;max-height:240px}
+.status{display:inline-block;padding:6px 10px;border-radius:999px;background:#1c2d50;border:1px solid #2e4880;color:#b8d1ff;font-size:12px}
+.status.err{background:#3a1f27;border-color:#7e3d4f;color:#ffc2ce}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div>
+      <div class="h1">NeuroTrack Live Stream</div>
+      <div class="sub">Источник данных: <code>/stream/data</code></div>
+    </div>
+    <div id="conn" class="status">connecting...</div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="name">Attention (a)</div>
+      <div id="aVal" class="val">0%</div>
+      <div class="bar"><div id="aBar" class="fill a" style="width:0%"></div></div>
+    </div>
+    <div class="card">
+      <div class="name">Meditation (m)</div>
+      <div id="mVal" class="val">0%</div>
+      <div class="bar"><div id="mBar" class="fill m" style="width:0%"></div></div>
+    </div>
+    <div class="card">
+      <div class="name">Blink (b)</div>
+      <div id="bVal" class="val">0%</div>
+      <div class="bar"><div id="bBar" class="fill b" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="row">
+      <span>Последнее обновление:</span>
+      <span id="updated">—</span>
+    </div>
+    <pre id="raw">Ожидание данных...</pre>
+  </div>
+</div>
+
 <script>
-const out=document.getElementById('out');
+const clamp=(v)=>Math.max(0,Math.min(100,Number(v)||0));
+const raw=document.getElementById('raw');
+const conn=document.getElementById('conn');
+const updated=document.getElementById('updated');
+const aVal=document.getElementById('aVal');
+const mVal=document.getElementById('mVal');
+const bVal=document.getElementById('bVal');
+const aBar=document.getElementById('aBar');
+const mBar=document.getElementById('mBar');
+const bBar=document.getElementById('bBar');
+
+function paint(obj){
+  const n=(obj&&obj.n)?obj.n:{};
+  const a=clamp(n.a), m=clamp(n.m), b=clamp(n.b);
+  aVal.textContent=`${a}%`; mVal.textContent=`${m}%`; bVal.textContent=`${b}%`;
+  aBar.style.width=`${a}%`; mBar.style.width=`${m}%`; bBar.style.width=`${b}%`;
+  updated.textContent=new Date().toLocaleTimeString();
+  raw.textContent=JSON.stringify(obj,null,2);
+}
+
 const es=new EventSource('/stream/data');
-es.onmessage=(ev)=>{try{const obj=JSON.parse(ev.data);out.textContent=JSON.stringify(obj,null,2);}catch(e){out.textContent=ev.data;}};
-es.onerror=()=>{out.textContent='Соединение потеряно, пытаемся переподключиться...';};
-</script></body></html>"""
+es.onopen=()=>{conn.textContent='live'; conn.classList.remove('err');};
+es.onmessage=(ev)=>{
+  try{paint(JSON.parse(ev.data));}
+  catch(_){raw.textContent=ev.data;}
+};
+es.onerror=()=>{conn.textContent='reconnecting...'; conn.classList.add('err');};
+</script>
+</body>
+</html>"""
 
             def do_GET(self):
                 if self.path in ("/stream", "/stream/events"):
