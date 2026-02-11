@@ -487,12 +487,14 @@ class TrackBridge(QtCore.QThread):
 class LocalhostDataServer:
     """
     HTTP-сервер для выдачи текущих данных NeuroTrack на localhost.
-    GET  /results  -> JSON с последними значениями
+    GET  /results  -> моментальный JSON-снимок
+    GET  /stream   -> непрерывный NDJSON-поток
     POST /shutdown -> остановка сервера
     """
-    def __init__(self, data_provider, host: str = "127.0.0.1", port: int = 8765):
+    def __init__(self, data_provider, host: str = "127.0.0.1", port: int = 8765, stream_interval: float = 0.2):
         self.host = host
         self.port = int(port)
+        self.stream_interval = max(0.05, float(stream_interval))
         self._data_provider = data_provider
         self._httpd: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
@@ -544,9 +546,28 @@ class LocalhostDataServer:
                 self.end_headers()
                 self.wfile.write(raw)
 
+            def _stream_ndjson(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Connection", "keep-alive")
+                self.end_headers()
+
+                while owner.is_running():
+                    payload = owner._data_provider()
+                    line = (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
+                    try:
+                        self.wfile.write(line)
+                        self.wfile.flush()
+                    except (BrokenPipeError, ConnectionResetError, OSError):
+                        break
+                    time.sleep(owner.stream_interval)
+
             def do_GET(self):
                 if self.path == "/results":
                     self._send_json(owner._data_provider())
+                elif self.path == "/stream":
+                    self._stream_ndjson()
                 else:
                     self._send_json({"error": "not found"}, status=404)
 
@@ -581,7 +602,7 @@ class LocalhostDataServer:
 
         self._thread = threading.Thread(target=run_server, daemon=True)
         self._thread.start()
-        print(f"Localhost-сервер запущен на http://{self.host}:{self.port}/results")
+        print(f"Localhost-сервер запущен: http://{self.host}:{self.port}/results и /stream")
 
     def stop(self):
         if self._httpd:
@@ -748,6 +769,7 @@ class BridgeUI(QtWidgets.QWidget):
 
         # HTTP-экспорт текущих данных на localhost
         self.local_server = LocalhostDataServer(self._collect_export_payload, "127.0.0.1", 8765)
+        self.local_server.start()
 
         # initial ports list
         self.refresh_ports()
@@ -849,7 +871,6 @@ class BridgeUI(QtWidgets.QWidget):
         self._connected = True
         self.btn_connect.setText("Отключить")
         self.lbl_ports.setText(f"🧠 NeuroTrack: {neuro}   |   🤖 Trackduino: {track or '—'}")
-        self.local_server.start()
 
     def _disconnect_all(self):
         self._connected = False
@@ -870,7 +891,6 @@ class BridgeUI(QtWidgets.QWidget):
 
         self.reader = None
         self.bridge = None
-        self.local_server.stop()
 
         self.btn_connect.setText("Подключить")
         self.status_label.setText("Ожидание подключения…")
@@ -899,7 +919,8 @@ class BridgeUI(QtWidgets.QWidget):
             "port": {
                 "host": self.local_server.host,
                 "port": self.local_server.port,
-                "endpoint": f"http://{self.local_server.host}:{self.local_server.port}/results",
+                "results": f"http://{self.local_server.host}:{self.local_server.port}/results",
+                "stream": f"http://{self.local_server.host}:{self.local_server.port}/stream",
             },
         }
 
