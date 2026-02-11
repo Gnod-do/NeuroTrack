@@ -784,17 +784,75 @@ class BridgeUI(QtWidgets.QWidget):
         self.resize(1100, 760)
 
         self.setStyleSheet("""
-            QWidget { background:#0f0f12; color:#f0f0f0; font-family:'Noto Sans','DejaVu Sans','Arial',sans-serif; font-size:11pt; }
-            QGroupBox { border:1px solid #2a2a33; border-radius:10px; margin-top:12px; padding-top:10px; }
-            QGroupBox::title { color:#ff9f1a; font-weight:600; left:10px; }
-            QPushButton { border:none; color:#000; background-color:#ff9f1a; padding:8px 18px; border-radius:18px; font-weight:600; }
-            QPushButton:hover { background-color:#ffb43c; }
-            QComboBox { padding:6px; border-radius:10px; background:#18191e; border:1px solid #2a2a33; }
-            QLabel { color:#f0f0f0; }
-            QSpinBox { padding:4px; border-radius:10px; background:#18191e; border:1px solid #2a2a33; }
+            QWidget {
+                color:#eaf2ff;
+                font-family:'Noto Sans','DejaVu Sans','Arial',sans-serif;
+                font-size:11pt;
+                background:qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #070b16, stop:0.45 #0a1225, stop:1 #111733);
+            }
+            QGroupBox {
+                border:1px solid #24365f;
+                border-radius:16px;
+                margin-top:14px;
+                padding:14px;
+                background:rgba(12, 20, 40, 0.72);
+            }
+            QGroupBox::title {
+                color:#8fb6ff;
+                font-weight:700;
+                left:14px;
+                top:2px;
+                padding:0 6px;
+            }
+            QPushButton {
+                border:1px solid #395ba2;
+                color:#eaf2ff;
+                background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #365efc, stop:1 #5f8bff);
+                padding:9px 20px;
+                border-radius:12px;
+                font-weight:700;
+            }
+            QPushButton:hover { background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #4872ff, stop:1 #79a0ff); }
+            QPushButton:pressed { background:#2a4fd8; }
+            QComboBox, QSpinBox {
+                padding:7px;
+                border-radius:10px;
+                background:#0c152a;
+                border:1px solid #2c4479;
+                color:#e9f0ff;
+            }
+            QCheckBox { spacing:8px; }
+            QLabel#heroTitle { font-size:16pt; font-weight:800; color:#f5f8ff; }
+            QLabel#heroSub { color:#a8bde4; font-size:10.5pt; }
+            QLabel#footerBar {
+                background:rgba(10,18,36,.75);
+                border:1px solid #24365f;
+                border-radius:10px;
+                padding:8px 12px;
+            }
         """)
 
         root = QtWidgets.QVBoxLayout(self)
+        root.setContentsMargins(14, 12, 14, 12)
+        root.setSpacing(10)
+
+        hero = QtWidgets.QFrame()
+        hero.setStyleSheet("QFrame { background:rgba(12,22,44,0.72); border:1px solid #2d4375; border-radius:14px; }")
+        hero_l = QtWidgets.QHBoxLayout(hero)
+        hero_l.setContentsMargins(14, 10, 14, 10)
+        hero_txt = QtWidgets.QVBoxLayout()
+        title = QtWidgets.QLabel("NeuroTrack Command Center")
+        title.setObjectName("heroTitle")
+        subtitle = QtWidgets.QLabel("Живые метрики EEG, обмен с Trackduino и локальный поток /stream")
+        subtitle.setObjectName("heroSub")
+        hero_txt.addWidget(title)
+        hero_txt.addWidget(subtitle)
+        hero_l.addLayout(hero_txt, 1)
+        self.badge_live = QtWidgets.QLabel("● LOCAL STREAM: http://127.0.0.1:8765/stream")
+        self.badge_live.setStyleSheet("QLabel { color:#c4d7ff; font-size:10pt; font-weight:600; }")
+        hero_l.addWidget(self.badge_live, 0, QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+        root.addWidget(hero)
 
         # --- Ports box ---
         ports_box = QtWidgets.QGroupBox("Порты устройств")
@@ -869,8 +927,8 @@ class BridgeUI(QtWidgets.QWidget):
 
         # --- Plot ---
         self.plot = pg.PlotWidget()
-        self.plot.setBackground("#050506")
-        self.plot.showGrid(x=True, y=True, alpha=0.25)
+        self.plot.setBackground("#091126")
+        self.plot.showGrid(x=True, y=True, alpha=0.18)
         self.plot.addLegend()
         self.plot.setYRange(0, 100)
         self.plot.setLimits(yMin=0, yMax=100)
@@ -878,14 +936,15 @@ class BridgeUI(QtWidgets.QWidget):
         self.plot.setLabel("left", "Уровень", units="%")
         self.plot.setLabel("bottom", "Время", units="сек")
 
-        self.curve_a = self.plot.plot(pen=pg.mkPen("#00ff99", width=2), name="Концентрация")
-        self.curve_m = self.plot.plot(pen=pg.mkPen("#00bfff", width=2), name="Медитация")
-        self.curve_b = self.plot.plot(pen=pg.mkPen("#ff6666", width=1.5), name="Моргание")
+        self.curve_a = self.plot.plot(pen=pg.mkPen("#49e6a3", width=2.6), name="Концентрация")
+        self.curve_m = self.plot.plot(pen=pg.mkPen("#64beff", width=2.6), name="Медитация")
+        self.curve_b = self.plot.plot(pen=pg.mkPen("#ff8f73", width=2.0), name="Моргание")
 
         root.addWidget(self.plot, 1)
 
         # --- Footer ---
         self.lbl_ports = QtWidgets.QLabel("🧠 NeuroTrack: —   |   🤖 Trackduino: —")
+        self.lbl_ports.setObjectName("footerBar")
         root.addWidget(self.lbl_ports)
 
         # === internal state ===
