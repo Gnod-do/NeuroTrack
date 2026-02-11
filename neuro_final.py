@@ -933,8 +933,8 @@ class BridgeUI(QtWidgets.QWidget):
         bars_layout.addWidget(self.vbar_a, 1)
         bars_layout.addWidget(self.vbar_m, 1)
 
-        content_layout.addWidget(plot_wrap, 1)
         content_layout.addWidget(bars_panel, 0)
+        content_layout.addWidget(plot_wrap, 1)
 
         root.addWidget(content_box, 1)
 
