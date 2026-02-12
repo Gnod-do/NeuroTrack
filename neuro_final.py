@@ -201,7 +201,7 @@ class Toast(QtWidgets.QDialog):
 
 class VerticalBar(QtWidgets.QProgressBar):
     """
-    Вертикальный прогресс-бар, который заполняется СВЕРХУ ВНИЗ.
+    Вертикальный прогресс-бар, который заполняется СНИЗУ ВВЕРХ.
     """
     def __init__(self, title: str):
         super().__init__()
@@ -210,8 +210,8 @@ class VerticalBar(QtWidgets.QProgressBar):
         self.setTextVisible(True)
         self.setFormat(f"{title}\n%v%")
         self.setOrientation(QtCore.Qt.Vertical)
-        # заполнять сверху вниз
-        self.setInvertedAppearance(True)
+        # заполнять снизу вверх
+        self.setInvertedAppearance(False)
         # чтобы текст не вращался
         self.setStyleSheet("""
             QProgressBar { border: 1px solid #30303a; border-radius: 10px; background:#18191e; color:#f0f0f0; }
@@ -887,9 +887,14 @@ class BridgeUI(QtWidgets.QWidget):
         h.addWidget(self.btn_connect, 0)
         root.addWidget(state_box)
 
-        # --- Top indicators (two columns) + blink ---
-        gauges_box = QtWidgets.QGroupBox("Текущие значения")
-        g = QtWidgets.QGridLayout(gauges_box)
+        # --- Plot + right bars (two-column model) ---
+        content_box = QtWidgets.QGroupBox("График и индикаторы")
+        content_layout = QtWidgets.QHBoxLayout(content_box)
+        content_layout.setSpacing(12)
+
+        plot_wrap = QtWidgets.QWidget()
+        plot_layout = QtWidgets.QVBoxLayout(plot_wrap)
+        plot_layout.setContentsMargins(0, 0, 0, 0)
 
         self.vbar_a = VerticalBar("Концентрация")
         self.vbar_m = VerticalBar("Медитация")
@@ -898,34 +903,6 @@ class BridgeUI(QtWidgets.QWidget):
         self.vbar_a.setStyleSheet(self.vbar_a.styleSheet() + "QProgressBar::chunk { background:#00ff99; }")
         self.vbar_m.setStyleSheet(self.vbar_m.styleSheet() + "QProgressBar::chunk { background:#00bfff; }")
 
-        self.lbl_b = QtWidgets.QLabel("Моргание: 0%")
-        self.lbl_b.setStyleSheet("font-size:13pt; font-weight:600;")
-        self.lbl_ps = QtWidgets.QLabel("Контакт: —")
-        self.lbl_ps.setStyleSheet("color:#cfcfcf;")
-
-        g.addWidget(self.vbar_a, 0, 0, 3, 1)
-        g.addWidget(self.vbar_m, 0, 1, 3, 1)
-
-        right = QtWidgets.QVBoxLayout()
-        right.addWidget(self.lbl_b)
-        right.addWidget(self.lbl_ps)
-        right.addStretch(1)
-
-        # Порог (небольшая функция по ТЗ)
-        thr_row = QtWidgets.QHBoxLayout()
-        self.cb_thr = QtWidgets.QCheckBox("Порог концентрации")
-        self.sp_thr = QtWidgets.QSpinBox()
-        self.sp_thr.setRange(0, 100)
-        self.sp_thr.setValue(60)
-        thr_row.addWidget(self.cb_thr)
-        thr_row.addWidget(self.sp_thr)
-        right.addLayout(thr_row)
-
-        g.addLayout(right, 0, 2, 3, 1)
-
-        root.addWidget(gauges_box)
-
-        # --- Plot ---
         self.plot = pg.PlotWidget()
         self.plot.setBackground("#091126")
         self.plot.showGrid(x=True, y=True, alpha=0.18)
@@ -940,7 +917,50 @@ class BridgeUI(QtWidgets.QWidget):
         self.curve_m = self.plot.plot(pen=pg.mkPen("#64beff", width=2.6), name="Медитация")
         self.curve_b = self.plot.plot(pen=pg.mkPen("#ff8f73", width=2.0), name="Моргание")
 
-        root.addWidget(self.plot, 1)
+        # Снижаем нагрузку на отрисовку, чтобы график не «отставал».
+        for curve in (self.curve_a, self.curve_m, self.curve_b):
+            curve.setDownsampling(auto=True, method="peak")
+            curve.setClipToView(True)
+
+        self.plot.setMinimumHeight(420)
+        plot_layout.addWidget(self.plot, 1)
+
+        bars_panel = QtWidgets.QFrame()
+        bars_panel.setStyleSheet("QFrame{background:rgba(8,16,32,.45); border:1px solid #24365f; border-radius:12px;}")
+        bars_layout = QtWidgets.QHBoxLayout(bars_panel)
+        bars_layout.setContentsMargins(10, 10, 10, 10)
+        bars_layout.setSpacing(10)
+        bars_panel.setMinimumWidth(230)
+
+        for bar in (self.vbar_a, self.vbar_m):
+            bar.setTextVisible(False)
+            bar.setFixedHeight(400)
+            bar.setFixedWidth(86)
+
+        self.lbl_a_val = QtWidgets.QLabel("Конц: 0%")
+        self.lbl_m_val = QtWidgets.QLabel("Мед: 0%")
+        self.lbl_a_val.setAlignment(QtCore.Qt.AlignCenter)
+        self.lbl_m_val.setAlignment(QtCore.Qt.AlignCenter)
+        self.lbl_a_val.setStyleSheet("font-size:11pt; font-weight:800; color:#a5ffcf;")
+        self.lbl_m_val.setStyleSheet("font-size:11pt; font-weight:800; color:#9bd8ff;")
+
+        a_col = QtWidgets.QVBoxLayout()
+        a_col.setSpacing(6)
+        a_col.addWidget(self.lbl_a_val)
+        a_col.addWidget(self.vbar_a, 1, QtCore.Qt.AlignHCenter)
+
+        m_col = QtWidgets.QVBoxLayout()
+        m_col.setSpacing(6)
+        m_col.addWidget(self.lbl_m_val)
+        m_col.addWidget(self.vbar_m, 1, QtCore.Qt.AlignHCenter)
+
+        bars_layout.addLayout(a_col, 1)
+        bars_layout.addLayout(m_col, 1)
+
+        content_layout.addWidget(bars_panel, 0)
+        content_layout.addWidget(plot_wrap, 1)
+
+        root.addWidget(content_box, 2)
 
         # --- Footer ---
         self.lbl_ports = QtWidgets.QLabel("🧠 NeuroTrack: —   |   🤖 Trackduino: —")
@@ -1142,25 +1162,14 @@ class BridgeUI(QtWidgets.QWidget):
         self.cur_b = int(max(0, min(100, b)))
         self.cur_poor = int(max(0, min(200, poor)))
 
+        # Обновляем индикаторы сразу при приходе данных (без ожидания on_periodic).
+        self.vbar_a.setValue(self.cur_a)
+        self.vbar_m.setValue(self.cur_m)
+        self.lbl_a_val.setText(f"Конц: {self.cur_a}%")
+        self.lbl_m_val.setText(f"Мед: {self.cur_m}%")
+
         # neuro OK: poor==0 и есть актуальные данные
         neuro_ok = (self.cur_poor == 0) and (self._last_neuro_state == "Подключено")
-
-        # Пороговая логика (как опция): если включено и превышен порог – можно подсветить
-        if self.cb_thr.isChecked():
-            thr = int(self.sp_thr.value())
-            if self.cur_a >= thr:
-                self.vbar_a.setStyleSheet(self.vbar_a.styleSheet() + "QProgressBar{border:2px solid #ff9f1a;}")
-            else:
-                # возвращаем нормальную рамку
-                self.vbar_a.setStyleSheet("""
-                    QProgressBar { border: 1px solid #30303a; border-radius: 10px; background:#18191e; color:#f0f0f0; }
-                    QProgressBar::chunk { background:#00ff99; border-radius: 10px; }
-                """)
-        else:
-            self.vbar_a.setStyleSheet("""
-                QProgressBar { border: 1px solid #30303a; border-radius: 10px; background:#18191e; color:#f0f0f0; }
-                QProgressBar::chunk { background:#00ff99; border-radius: 10px; }
-            """)
 
         # отправляем значения в TrackBridge
         if self.bridge and self.bridge.isRunning():
@@ -1192,12 +1201,9 @@ class BridgeUI(QtWidgets.QWidget):
 
         self.vbar_a.setValue(self.cur_a)
         self.vbar_m.setValue(self.cur_m)
+        self.lbl_a_val.setText(f"Конц: {self.cur_a}%")
+        self.lbl_m_val.setText(f"Мед: {self.cur_m}%")
 
-        self.lbl_b.setText(f"Моргание: {self.cur_b}%")
-        if self.cur_poor == 0:
-            self.lbl_ps.setText("Контакт: нормальный")
-        else:
-            self.lbl_ps.setText(f"Контакт: PoorSignal={self.cur_poor} (Нейротрек снят)")
 
     # ---------- autoconnect ----------
     def try_autoconnect(self):
@@ -1221,7 +1227,7 @@ class BridgeUI(QtWidgets.QWidget):
 # ==============================
 def main() -> int:
     app = QtWidgets.QApplication(sys.argv)
-    pg.setConfigOptions(antialias=True)
+    pg.setConfigOptions(antialias=False)
     w = BridgeUI()
     w.show()
 
