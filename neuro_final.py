@@ -13,7 +13,7 @@
 - обновление списка портов не чаще 1 раза в 10 секунд и без сброса выбранных портов;
 - уведомления (небольшие окна) на 20 секунд при отключении питания/потере порта/потере контакта.
 """
-import sys, time, json, threading, platform, socket, signal
+import os, sys, time, json, threading, platform, socket, signal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib import request as urllib_request
 from typing import List, Tuple, Optional, Dict
