@@ -13,7 +13,7 @@
 - обновление списка портов не чаще 1 раза в 10 секунд и без сброса выбранных портов;
 - уведомления (небольшие окна) на 20 секунд при отключении питания/потере порта/потере контакта.
 """
-import sys, time, json, threading, platform, socket, signal, os
+import sys, time, json, threading, platform, socket, signal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib import request as urllib_request
 from typing import List, Tuple, Optional, Dict
@@ -870,7 +870,7 @@ class BridgeUI(QtWidgets.QWidget):
         hero_txt = QtWidgets.QVBoxLayout()
         title = QtWidgets.QLabel("NeuroTrack Command Center")
         title.setObjectName("heroTitle")
-        subtitle = QtWidgets.QLabel("Живые метрики EEG, обмен с Trackduino и локальный поток /stream")
+        subtitle = QtWidgets.QLabel("Real-time NeuroTrack metrics, Trackduino communication, and local /stream endpoint")
         subtitle.setObjectName("heroSub")
         hero_txt.addWidget(title)
         hero_txt.addWidget(subtitle)
@@ -963,7 +963,7 @@ class BridgeUI(QtWidgets.QWidget):
 
         for bar in (self.vbar_a, self.vbar_m):
             bar.setTextVisible(False)
-            bar.setFixedHeight(230)
+            bar.setFixedHeight(400)
             bar.setFixedWidth(86)
 
         self.lbl_a_val = QtWidgets.QLabel("Конц: 0%")
@@ -1184,6 +1184,24 @@ class BridgeUI(QtWidgets.QWidget):
 
     def closeEvent(self, event):
         self._disconnect_all()
+        try:
+            self.local_server.stop()
+        except Exception:
+            pass
+        super().closeEvent(event)
+
+    def _collect_export_payload(self) -> Dict[str, object]:
+        # Формат строго по требованию интеграции:
+        # <{"n":{"a":A,"m":M,"b":B}}>
+        return {
+            "n": {
+                "a": int(self.cur_a),
+                "m": int(self.cur_m),
+                "b": int(self.cur_b),
+            }
+        }
+
+    def closeEvent(self, event):
         try:
             self.local_server.stop()
         except Exception:
