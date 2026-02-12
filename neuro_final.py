@@ -239,6 +239,10 @@ class NeuroReader(QtCore.QThread):
 
         self._last_status = ""
 
+        # Отладка blink-кода (0x16): включается через переменную среды NT_DEBUG_BLINK=1
+        self._debug_blink = os.getenv("NT_DEBUG_BLINK", "0").strip().lower() in {"1", "true", "yes", "on"}
+        self._last_blink_debug_ts = 0.0
+
     def stop(self):
         self._run = False
 
@@ -255,6 +259,22 @@ class NeuroReader(QtCore.QThread):
         if v >= 255:
             return 100
         return int(round(v * 100.0 / 255.0))
+
+    def _debug_log_blink(self, payload: bytes, had_blink_code: bool, blink_raw: Optional[int]):
+        if not self._debug_blink:
+            return
+
+        now = time.time()
+        if had_blink_code:
+            self._last_blink_debug_ts = now
+            print(f"[BLINK-DEBUG] code=0x16 raw={blink_raw} mapped={self._blink_to_0_100(int(blink_raw or 0))}")
+            return
+
+        # Чтобы не спамить: не чаще раза в 2 секунды пишем отсутствие 0x16.
+        if now - self._last_blink_debug_ts >= 2.0:
+            self._last_blink_debug_ts = now
+            hex_payload = payload.hex(" ")
+            print(f"[BLINK-DEBUG] no 0x16 in payload (len={len(payload)}): {hex_payload}")
 
     def run(self):
         try:
@@ -280,6 +300,8 @@ class NeuroReader(QtCore.QThread):
 
                     for payload in packets:
                         i = 0
+                        had_blink_code = False
+                        blink_raw: Optional[int] = None
                         while i < len(payload):
                             code = payload[i]
                             i += 1
@@ -308,7 +330,9 @@ class NeuroReader(QtCore.QThread):
 
                             # Blink strength (0x16)
                             if code == 0x16 and i < len(payload):
-                                blink_0_100 = self._blink_to_0_100(payload[i])
+                                blink_raw = int(payload[i])
+                                had_blink_code = True
+                                blink_0_100 = self._blink_to_0_100(blink_raw)
                                 i += 1
                                 continue
 
@@ -320,6 +344,8 @@ class NeuroReader(QtCore.QThread):
 
                             # single-byte unknown
                             # nothing else to do
+
+                        self._debug_log_blink(payload, had_blink_code, blink_raw)
 
                         self._last_data_ts = time.time()
                         if not self._has_first_packet:
@@ -863,16 +889,22 @@ class BridgeUI(QtWidgets.QWidget):
 
         grid.addWidget(QtWidgets.QLabel("🧠 NeuroTrack:"), 0, 0)
         grid.addWidget(self.cb_neuro, 0, 1)
+        self.btn_neuro_toggle = QtWidgets.QPushButton("Подключить NeuroTrack")
+        self.btn_neuro_toggle.clicked.connect(self.on_toggle_neuro)
+        grid.addWidget(self.btn_neuro_toggle, 0, 2)
 
         grid.addWidget(QtWidgets.QLabel("🤖 Trackduino:"), 1, 0)
         grid.addWidget(self.cb_track, 1, 1)
+        self.btn_track_toggle = QtWidgets.QPushButton("Подключить Trackduino")
+        self.btn_track_toggle.clicked.connect(self.on_toggle_track)
+        grid.addWidget(self.btn_track_toggle, 1, 2)
 
         self.btn_refresh = QtWidgets.QPushButton("Обновить порты")
         self.btn_refresh.clicked.connect(self.refresh_ports)
-        grid.addWidget(self.btn_refresh, 0, 2, 2, 1)
+        grid.addWidget(self.btn_refresh, 0, 3, 2, 1)
 
         self.auto_cb = QtWidgets.QCheckBox("Автоподключение при доступности")
-        grid.addWidget(self.auto_cb, 2, 0, 1, 3)
+        grid.addWidget(self.auto_cb, 2, 0, 1, 4)
 
         root.addWidget(ports_box)
 
@@ -881,10 +913,7 @@ class BridgeUI(QtWidgets.QWidget):
         h = QtWidgets.QHBoxLayout(state_box)
         self.status_label = QtWidgets.QLabel("Ожидание подключения…")
         self.status_label.setStyleSheet("font-weight:600;")
-        self.btn_connect = QtWidgets.QPushButton("Подключить")
-        self.btn_connect.clicked.connect(self.on_toggle)
         h.addWidget(self.status_label, 1)
-        h.addWidget(self.btn_connect, 0)
         root.addWidget(state_box)
 
         # --- Plot + right bars (two-column model) ---
@@ -980,8 +1009,11 @@ class BridgeUI(QtWidgets.QWidget):
         self.cur_m = 0
         self.cur_b = 0
         self.cur_poor = 200
+        self._has_live_sample = False
 
         self._connected = False
+        self._neuro_connected = False
+        self._track_connected = False
         self.reader: Optional[NeuroReader] = None
         self.bridge: Optional[TrackBridge] = None
 
@@ -1057,21 +1089,34 @@ class BridgeUI(QtWidgets.QWidget):
         self.refresh_ports()
 
     # ---------- connect / disconnect ----------
-    def on_toggle(self):
-        if self._connected:
-            self._disconnect_all()
+    def on_toggle_neuro(self):
+        if self._neuro_connected:
+            self._disconnect_neuro()
         else:
-            self._connect_all()
+            self._connect_neuro()
 
-    def _connect_all(self):
+    def on_toggle_track(self):
+        if self._track_connected:
+            self._disconnect_track()
+        else:
+            self._connect_track()
+
+    def _sync_connection_flags(self):
+        self._connected = self._neuro_connected or self._track_connected
+        self.btn_neuro_toggle.setText("Отключить NeuroTrack" if self._neuro_connected else "Подключить NeuroTrack")
+        self.btn_track_toggle.setText("Отключить Trackduino" if self._track_connected else "Подключить Trackduino")
+
+    def _connect_neuro(self):
         neuro = self.cb_neuro.currentData()
-        track = self.cb_track.currentData()
-
         if not neuro:
             QtWidgets.QMessageBox.warning(self, "NeuroTrack", "Не выбран порт NeuroTrack.")
             return
 
-        self.t0 = time.time()
+        if self._neuro_connected:
+            return
+
+        self.t0 = None
+        self._has_live_sample = False
         self.x.clear(); self.a_hist.clear(); self.m_hist.clear(); self.b_hist.clear()
 
         self.cur_a = self.cur_m = self.cur_b = 0
@@ -1083,19 +1128,13 @@ class BridgeUI(QtWidgets.QWidget):
         self.reader.status.connect(self.on_neuro_status)
         self.reader.start()
 
-        # Trackduino bridge (если выбран)
-        if track:
-            self.bridge = TrackBridge(track, 115200)
-            self.bridge.opened.connect(self.on_track_opened)
-            self.bridge.status.connect(self.on_track_status)
-            self.bridge.start()
-
-        self._connected = True
-        self.btn_connect.setText("Отключить")
+        self._neuro_connected = True
+        self._sync_connection_flags()
+        track = self.cb_track.currentData() if self._track_connected else "—"
         self.lbl_ports.setText(f"🧠 NeuroTrack: {neuro}   |   🤖 Trackduino: {track or '—'}")
 
-    def _disconnect_all(self):
-        self._connected = False
+    def _disconnect_neuro(self):
+        self._neuro_connected = False
 
         try:
             if self.reader and self.reader.isRunning():
@@ -1104,6 +1143,29 @@ class BridgeUI(QtWidgets.QWidget):
         except Exception:
             pass
 
+        self.reader = None
+        self.status_label.setText("Ожидание подключения…")
+        self._sync_connection_flags()
+
+    def _connect_track(self):
+        track = self.cb_track.currentData()
+        if not track:
+            QtWidgets.QMessageBox.warning(self, "Trackduino", "Не выбран порт Trackduino.")
+            return
+
+        if self._track_connected:
+            return
+
+        self.bridge = TrackBridge(track, 115200)
+        self.bridge.opened.connect(self.on_track_opened)
+        self.bridge.status.connect(self.on_track_status)
+        self.bridge.start()
+        self._track_connected = True
+        self._sync_connection_flags()
+
+    def _disconnect_track(self):
+        self._track_connected = False
+
         try:
             if self.bridge and self.bridge.isRunning():
                 self.bridge.stop()
@@ -1111,11 +1173,33 @@ class BridgeUI(QtWidgets.QWidget):
         except Exception:
             pass
 
-        self.reader = None
         self.bridge = None
+        self._sync_connection_flags()
 
-        self.btn_connect.setText("Подключить")
-        self.status_label.setText("Ожидание подключения…")
+    def _disconnect_all(self):
+        self._disconnect_neuro()
+        self._disconnect_track()
+
+        self.lbl_ports.setText("🧠 NeuroTrack: —   |   🤖 Trackduino: —")
+
+    def closeEvent(self, event):
+        self._disconnect_all()
+        try:
+            self.local_server.stop()
+        except Exception:
+            pass
+        super().closeEvent(event)
+
+    def _collect_export_payload(self) -> Dict[str, object]:
+        # Формат строго по требованию интеграции:
+        # <{"n":{"a":A,"m":M,"b":B}}>
+        return {
+            "n": {
+                "a": int(self.cur_a),
+                "m": int(self.cur_m),
+                "b": int(self.cur_b),
+            }
+        }
 
     def closeEvent(self, event):
         try:
@@ -1162,6 +1246,10 @@ class BridgeUI(QtWidgets.QWidget):
         self.cur_b = int(max(0, min(100, b)))
         self.cur_poor = int(max(0, min(200, poor)))
 
+        if not self._has_live_sample:
+            self._has_live_sample = True
+            self.t0 = time.time()
+
         # Обновляем индикаторы сразу при приходе данных (без ожидания on_periodic).
         self.vbar_a.setValue(self.cur_a)
         self.vbar_m.setValue(self.cur_m)
@@ -1177,10 +1265,15 @@ class BridgeUI(QtWidgets.QWidget):
 
     # ---------- periodic UI update ----------
     def on_periodic(self):
-        if not self._connected:
+        # Рисуем график, пока подключен NeuroTrack: даже если пакетов ещё нет,
+        # пользователь видит «живую» временную шкалу и текущие значения (обычно 0).
+        if not self._neuro_connected:
             return
 
-        t = time.time() - (self.t0 or time.time())
+        if self.t0 is None:
+            self.t0 = time.time()
+
+        t = time.time() - self.t0
         self.x.append(t)
         self.a_hist.append(self.cur_a)
         self.m_hist.append(self.cur_m)
@@ -1209,7 +1302,7 @@ class BridgeUI(QtWidgets.QWidget):
     def try_autoconnect(self):
         if not self.auto_cb.isChecked():
             return
-        if self._connected:
+        if self._neuro_connected:
             return
 
         # мягкое автоподключение: если есть выбранные порты – пытаемся
@@ -1218,8 +1311,7 @@ class BridgeUI(QtWidgets.QWidget):
 
         neuro = self.cb_neuro.currentData()
         if neuro:
-            # Track может быть не выбран – это допустимо
-            self._connect_all()
+            self._connect_neuro()
 
 
 # ==============================
