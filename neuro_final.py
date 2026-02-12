@@ -930,25 +930,33 @@ class BridgeUI(QtWidgets.QWidget):
         bars_layout = QtWidgets.QGridLayout(bars_panel)
         bars_layout.setContentsMargins(10, 10, 10, 10)
         bars_layout.setHorizontalSpacing(10)
-        bars_layout.setVerticalSpacing(6)
-        bars_panel.setMinimumWidth(190)
+        bars_layout.setVerticalSpacing(8)
+        bars_panel.setMinimumWidth(230)
 
         for bar in (self.vbar_a, self.vbar_m):
             bar.setTextVisible(False)
-            bar.setFixedHeight(220)
-            bar.setFixedWidth(72)
+            bar.setFixedHeight(230)
+            bar.setFixedWidth(86)
 
-        self.lbl_a_val = QtWidgets.QLabel("Концентрация: 0%")
-        self.lbl_m_val = QtWidgets.QLabel("Медитация: 0%")
-        self.lbl_a_val.setStyleSheet("font-weight:700; color:#a5ffcf;")
-        self.lbl_m_val.setStyleSheet("font-weight:700; color:#9bd8ff;")
+        self.lbl_a_title = QtWidgets.QLabel("Конц")
+        self.lbl_m_title = QtWidgets.QLabel("Мед")
+        self.lbl_a_val = QtWidgets.QLabel("0%")
+        self.lbl_m_val = QtWidgets.QLabel("0%")
+        self.lbl_a_title.setAlignment(QtCore.Qt.AlignCenter)
+        self.lbl_m_title.setAlignment(QtCore.Qt.AlignCenter)
         self.lbl_a_val.setAlignment(QtCore.Qt.AlignCenter)
         self.lbl_m_val.setAlignment(QtCore.Qt.AlignCenter)
+        self.lbl_a_title.setStyleSheet("font-size:9pt; color:#9dd7bf; font-weight:600;")
+        self.lbl_m_title.setStyleSheet("font-size:9pt; color:#a9cbff; font-weight:600;")
+        self.lbl_a_val.setStyleSheet("font-size:11pt; font-weight:800; color:#a5ffcf;")
+        self.lbl_m_val.setStyleSheet("font-size:11pt; font-weight:800; color:#9bd8ff;")
 
-        bars_layout.addWidget(self.lbl_a_val, 0, 0)
-        bars_layout.addWidget(self.lbl_m_val, 0, 1)
-        bars_layout.addWidget(self.vbar_a, 1, 0)
-        bars_layout.addWidget(self.vbar_m, 1, 1)
+        bars_layout.addWidget(self.lbl_a_title, 0, 0)
+        bars_layout.addWidget(self.lbl_m_title, 0, 1)
+        bars_layout.addWidget(self.lbl_a_val, 1, 0)
+        bars_layout.addWidget(self.lbl_m_val, 1, 1)
+        bars_layout.addWidget(self.vbar_a, 2, 0)
+        bars_layout.addWidget(self.vbar_m, 2, 1)
 
         content_layout.addWidget(bars_panel, 0)
         content_layout.addWidget(plot_wrap, 1)
@@ -1158,8 +1166,8 @@ class BridgeUI(QtWidgets.QWidget):
         # Обновляем индикаторы сразу при приходе данных (без ожидания on_periodic).
         self.vbar_a.setValue(self.cur_a)
         self.vbar_m.setValue(self.cur_m)
-        self.lbl_a_val.setText(f"Концентрация: {self.cur_a}%")
-        self.lbl_m_val.setText(f"Медитация: {self.cur_m}%")
+        self.lbl_a_val.setText(f"{self.cur_a}%")
+        self.lbl_m_val.setText(f"{self.cur_m}%")
 
         # neuro OK: poor==0 и есть актуальные данные
         neuro_ok = (self.cur_poor == 0) and (self._last_neuro_state == "Подключено")
@@ -1194,8 +1202,8 @@ class BridgeUI(QtWidgets.QWidget):
 
         self.vbar_a.setValue(self.cur_a)
         self.vbar_m.setValue(self.cur_m)
-        self.lbl_a_val.setText(f"Концентрация: {self.cur_a}%")
-        self.lbl_m_val.setText(f"Медитация: {self.cur_m}%")
+        self.lbl_a_val.setText(f"{self.cur_a}%")
+        self.lbl_m_val.setText(f"{self.cur_m}%")
 
 
     # ---------- autoconnect ----------
