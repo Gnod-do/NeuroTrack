@@ -927,24 +927,28 @@ class BridgeUI(QtWidgets.QWidget):
 
         bars_panel = QtWidgets.QFrame()
         bars_panel.setStyleSheet("QFrame{background:rgba(8,16,32,.45); border:1px solid #24365f; border-radius:12px;}")
-        bars_layout = QtWidgets.QVBoxLayout(bars_panel)
+        bars_layout = QtWidgets.QGridLayout(bars_panel)
         bars_layout.setContentsMargins(10, 10, 10, 10)
-        bars_layout.setSpacing(8)
-        bars_panel.setMinimumWidth(170)
+        bars_layout.setHorizontalSpacing(10)
+        bars_layout.setVerticalSpacing(6)
+        bars_panel.setMinimumWidth(190)
 
         for bar in (self.vbar_a, self.vbar_m):
             bar.setTextVisible(False)
-            bar.setFixedHeight(190)
+            bar.setFixedHeight(220)
+            bar.setFixedWidth(72)
 
         self.lbl_a_val = QtWidgets.QLabel("Концентрация: 0%")
         self.lbl_m_val = QtWidgets.QLabel("Медитация: 0%")
         self.lbl_a_val.setStyleSheet("font-weight:700; color:#a5ffcf;")
         self.lbl_m_val.setStyleSheet("font-weight:700; color:#9bd8ff;")
+        self.lbl_a_val.setAlignment(QtCore.Qt.AlignCenter)
+        self.lbl_m_val.setAlignment(QtCore.Qt.AlignCenter)
 
-        bars_layout.addWidget(self.lbl_a_val)
-        bars_layout.addWidget(self.vbar_a, 1)
-        bars_layout.addWidget(self.lbl_m_val)
-        bars_layout.addWidget(self.vbar_m, 1)
+        bars_layout.addWidget(self.lbl_a_val, 0, 0)
+        bars_layout.addWidget(self.lbl_m_val, 0, 1)
+        bars_layout.addWidget(self.vbar_a, 1, 0)
+        bars_layout.addWidget(self.vbar_m, 1, 1)
 
         content_layout.addWidget(bars_panel, 0)
         content_layout.addWidget(plot_wrap, 1)
