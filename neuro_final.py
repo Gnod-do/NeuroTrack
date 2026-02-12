@@ -201,7 +201,7 @@ class Toast(QtWidgets.QDialog):
 
 class VerticalBar(QtWidgets.QProgressBar):
     """
-    Вертикальный прогресс-бар, который заполняется СВЕРХУ ВНИЗ.
+    Вертикальный прогресс-бар, который заполняется СНИЗУ ВВЕРХ.
     """
     def __init__(self, title: str):
         super().__init__()
@@ -210,8 +210,8 @@ class VerticalBar(QtWidgets.QProgressBar):
         self.setTextVisible(True)
         self.setFormat(f"{title}\n%v%")
         self.setOrientation(QtCore.Qt.Vertical)
-        # заполнять сверху вниз
-        self.setInvertedAppearance(True)
+        # заполнять снизу вверх
+        self.setInvertedAppearance(False)
         # чтобы текст не вращался
         self.setStyleSheet("""
             QProgressBar { border: 1px solid #30303a; border-radius: 10px; background:#18191e; color:#f0f0f0; }
@@ -922,6 +922,7 @@ class BridgeUI(QtWidgets.QWidget):
             curve.setDownsampling(auto=True, method="peak")
             curve.setClipToView(True)
 
+        self.plot.setMinimumHeight(420)
         plot_layout.addWidget(self.plot, 1)
 
         bars_panel = QtWidgets.QFrame()
@@ -948,7 +949,7 @@ class BridgeUI(QtWidgets.QWidget):
         content_layout.addWidget(bars_panel, 0)
         content_layout.addWidget(plot_wrap, 1)
 
-        root.addWidget(content_box, 1)
+        root.addWidget(content_box, 2)
 
         # --- Footer ---
         self.lbl_ports = QtWidgets.QLabel("🧠 NeuroTrack: —   |   🤖 Trackduino: —")
