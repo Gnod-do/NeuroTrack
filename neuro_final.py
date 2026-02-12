@@ -844,7 +844,7 @@ class BridgeUI(QtWidgets.QWidget):
         hero_txt = QtWidgets.QVBoxLayout()
         title = QtWidgets.QLabel("NeuroTrack Command Center")
         title.setObjectName("heroTitle")
-        subtitle = QtWidgets.QLabel("Живые метрики EEG, обмен с Trackduino и локальный поток /stream")
+        subtitle = QtWidgets.QLabel("Real-time NeuroTrack metrics, Trackduino communication, and local /stream endpoint")
         subtitle.setObjectName("heroSub")
         hero_txt.addWidget(title)
         hero_txt.addWidget(subtitle)
