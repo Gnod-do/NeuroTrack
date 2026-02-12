@@ -934,7 +934,7 @@ class BridgeUI(QtWidgets.QWidget):
 
         for bar in (self.vbar_a, self.vbar_m):
             bar.setTextVisible(False)
-            bar.setFixedHeight(230)
+            bar.setFixedHeight(400)
             bar.setFixedWidth(86)
 
         self.lbl_a_val = QtWidgets.QLabel("Конц: 0%")
