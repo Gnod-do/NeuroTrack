@@ -1247,7 +1247,9 @@ class BridgeUI(QtWidgets.QWidget):
 
     # ---------- periodic UI update ----------
     def on_periodic(self):
-        if not self._connected or not self._has_live_sample or self.t0 is None:
+        # График должен рисоваться всегда, когда есть живые neuro-сэмплы,
+        # независимо от отдельного состояния Trackduino.
+        if not self._has_live_sample or self.t0 is None:
             return
 
         t = time.time() - self.t0
