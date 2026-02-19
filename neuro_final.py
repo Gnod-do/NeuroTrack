@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib import request as urllib_request
 from typing import List, Tuple, Optional, Dict
 
-from PyQt5 import QtWidgets, QtCore
+from PyQt5 import QtWidgets, QtCore, QtGui
 import pyqtgraph as pg
 import serial
 import serial.tools.list_ports
@@ -806,6 +806,62 @@ def nice_state_color(s: str) -> str:
 class BridgeUI(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
+        sys_locale = QtCore.QLocale.system().name().lower()
+        self.current_lang = "ru" if sys_locale.startswith("ru") else "en"
+
+        self.i18n = {
+            "ru": {
+                "window_title": "Мост NeuroTrack ↔ Trackduino",
+                "hero_title": "Нейроинтерфейс Роботрек",
+                                "ports_group": "Порты устройств",
+                "state_group": "Состояние",
+                "content_group": "График и индикаторы",
+                "neuro_label": "🧠 Нейротрек:",
+                "track_label": "🤖 Трекдуино:",
+                "auto_connect": "Автоподключение при доступности",
+                "btn_neuro_connect": "Подключить NeuroTrack",
+                "btn_neuro_disconnect": "Отключить NeuroTrack",
+                "btn_track_connect": "Подключить Trackduino",
+                "btn_track_disconnect": "Отключить Trackduino",
+                "btn_refresh": "Обновить порты",
+                "api_access": "API access",
+                "footer_ports": "🧠 Нейротрек: {neuro}   |   🤖 Трекдуино: {track}",
+                "status_waiting": "Ожидание подключения…",
+                "attention": "Концентрация",
+                "meditation": "Медитация",
+                "attention_value": "Концентрация: {value}%",
+                "meditation_value": "Медитация: {value}%",
+                "plot_level": "Уровень",
+                "plot_time": "Время",
+                "plot_seconds": "сек",
+            },
+            "en": {
+                "window_title": "NeuroTrack ↔ Trackduino Bridge",
+                "hero_title": "Нейроинтерфейс Роботрек",
+                                "ports_group": "Device Ports",
+                "state_group": "Status",
+                "content_group": "Chart and Indicators",
+                "neuro_label": "🧠 NeuroTrack:",
+                "track_label": "🤖 Trackduino:",
+                "auto_connect": "Auto-connect when available",
+                "btn_neuro_connect": "Connect NeuroTrack",
+                "btn_neuro_disconnect": "Disconnect NeuroTrack",
+                "btn_track_connect": "Connect Trackduino",
+                "btn_track_disconnect": "Disconnect Trackduino",
+                "btn_refresh": "Update Ports",
+                "api_access": "API access",
+                "footer_ports": "🧠 NeuroTrack: {neuro}   |   🤖 Trackduino: {track}",
+                "status_waiting": "Waiting for connection…",
+                "attention": "Concentration",
+                "meditation": "Meditation",
+                "attention_value": "Concentration: {value}%",
+                "meditation_value": "Meditation: {value}%",
+                "plot_level": "Level",
+                "plot_time": "Time",
+                "plot_seconds": "sec",
+            },
+        }
+
         self.setWindowTitle("Мост NeuroTrack ↔ Trackduino")
         self.resize(1100, 760)
 
@@ -841,6 +897,11 @@ class BridgeUI(QtWidgets.QWidget):
             }
             QPushButton:hover { background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #4872ff, stop:1 #79a0ff); }
             QPushButton:pressed { background:#2a4fd8; }
+            QPushButton[small="true"] {
+                padding:5px 11px;
+                border-radius:9px;
+                font-size:9.5pt;
+            }
             QComboBox, QSpinBox {
                 padding:7px;
                 border-radius:10px;
@@ -868,57 +929,75 @@ class BridgeUI(QtWidgets.QWidget):
         hero_l = QtWidgets.QHBoxLayout(hero)
         hero_l.setContentsMargins(14, 10, 14, 10)
         hero_txt = QtWidgets.QVBoxLayout()
-        title = QtWidgets.QLabel("NeuroTrack Command Center")
-        title.setObjectName("heroTitle")
-        subtitle = QtWidgets.QLabel("Real-time NeuroTrack metrics, Trackduino communication, and local /stream endpoint")
-        subtitle.setObjectName("heroSub")
-        hero_txt.addWidget(title)
-        hero_txt.addWidget(subtitle)
+        self.title = QtWidgets.QLabel("NeuroTrack Command Center")
+        self.title.setObjectName("heroTitle")
+        hero_txt.addWidget(self.title)
         hero_l.addLayout(hero_txt, 1)
-        self.badge_live = QtWidgets.QLabel("● LOCAL STREAM: http://127.0.0.1:8765/stream")
-        self.badge_live.setStyleSheet("QLabel { color:#c4d7ff; font-size:10pt; font-weight:600; }")
-        hero_l.addWidget(self.badge_live, 0, QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+
+        lang_wrap = QtWidgets.QWidget()
+        lang_l = QtWidgets.QHBoxLayout(lang_wrap)
+        lang_l.setContentsMargins(0, 0, 0, 0)
+        lang_l.setSpacing(6)
+        self.btn_lang_ru = QtWidgets.QPushButton("Ru")
+        self.btn_lang_en = QtWidgets.QPushButton("En")
+        self.btn_lang_ru.setProperty("small", True)
+        self.btn_lang_en.setProperty("small", True)
+        self.btn_lang_ru.clicked.connect(lambda: self.set_language("ru"))
+        self.btn_lang_en.clicked.connect(lambda: self.set_language("en"))
+        lang_l.addWidget(self.btn_lang_ru)
+        lang_l.addWidget(self.btn_lang_en)
+        hero_l.addWidget(lang_wrap, 0, QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+
+        self.btn_api_access = QtWidgets.QPushButton("API access")
+        self.btn_api_access.setProperty("small", True)
+        self.btn_api_access.clicked.connect(self.open_api_access)
+        hero_l.addWidget(self.btn_api_access, 0, QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
         root.addWidget(hero)
 
         # --- Ports box ---
-        ports_box = QtWidgets.QGroupBox("Порты устройств")
-        grid = QtWidgets.QGridLayout(ports_box)
+        self.ports_box = QtWidgets.QGroupBox("Порты устройств")
+        grid = QtWidgets.QGridLayout(self.ports_box)
 
         self.cb_neuro = QtWidgets.QComboBox()
         self.cb_track = QtWidgets.QComboBox()
 
-        grid.addWidget(QtWidgets.QLabel("🧠 NeuroTrack:"), 0, 0)
+        self.lbl_neuro_port = QtWidgets.QLabel("🧠 NeuroTrack:")
+        grid.addWidget(self.lbl_neuro_port, 0, 0)
         grid.addWidget(self.cb_neuro, 0, 1)
         self.btn_neuro_toggle = QtWidgets.QPushButton("Подключить NeuroTrack")
+        self.btn_neuro_toggle.setProperty("small", True)
         self.btn_neuro_toggle.clicked.connect(self.on_toggle_neuro)
         grid.addWidget(self.btn_neuro_toggle, 0, 2)
 
-        grid.addWidget(QtWidgets.QLabel("🤖 Trackduino:"), 1, 0)
+        self.lbl_track_port = QtWidgets.QLabel("🤖 Trackduino:")
+        grid.addWidget(self.lbl_track_port, 1, 0)
         grid.addWidget(self.cb_track, 1, 1)
         self.btn_track_toggle = QtWidgets.QPushButton("Подключить Trackduino")
+        self.btn_track_toggle.setProperty("small", True)
         self.btn_track_toggle.clicked.connect(self.on_toggle_track)
         grid.addWidget(self.btn_track_toggle, 1, 2)
 
         self.btn_refresh = QtWidgets.QPushButton("Обновить порты")
+        self.btn_refresh.setProperty("small", True)
         self.btn_refresh.clicked.connect(self.refresh_ports)
         grid.addWidget(self.btn_refresh, 0, 3, 2, 1)
 
         self.auto_cb = QtWidgets.QCheckBox("Автоподключение при доступности")
         grid.addWidget(self.auto_cb, 2, 0, 1, 4)
 
-        root.addWidget(ports_box)
+        root.addWidget(self.ports_box)
 
         # --- State box ---
-        state_box = QtWidgets.QGroupBox("Состояние")
-        h = QtWidgets.QHBoxLayout(state_box)
+        self.state_box = QtWidgets.QGroupBox("Состояние")
+        h = QtWidgets.QHBoxLayout(self.state_box)
         self.status_label = QtWidgets.QLabel("Ожидание подключения…")
         self.status_label.setStyleSheet("font-weight:600;")
         h.addWidget(self.status_label, 1)
-        root.addWidget(state_box)
+        root.addWidget(self.state_box)
 
         # --- Plot + right bars (two-column model) ---
-        content_box = QtWidgets.QGroupBox("График и индикаторы")
-        content_layout = QtWidgets.QHBoxLayout(content_box)
+        self.content_box = QtWidgets.QGroupBox("График и индикаторы")
+        content_layout = QtWidgets.QHBoxLayout(self.content_box)
         content_layout.setSpacing(12)
 
         plot_wrap = QtWidgets.QWidget()
@@ -935,21 +1014,12 @@ class BridgeUI(QtWidgets.QWidget):
         self.plot = pg.PlotWidget()
         self.plot.setBackground("#091126")
         self.plot.showGrid(x=True, y=True, alpha=0.18)
-        self.plot.addLegend()
         self.plot.setYRange(0, 100)
         self.plot.setLimits(yMin=0, yMax=100)
         self.plot.setMouseEnabled(x=False, y=True)
         self.plot.setLabel("left", "Уровень", units="%")
         self.plot.setLabel("bottom", "Время", units="сек")
-
-        self.curve_a = self.plot.plot(pen=pg.mkPen("#49e6a3", width=2.6), name="Концентрация")
-        self.curve_m = self.plot.plot(pen=pg.mkPen("#64beff", width=2.6), name="Медитация")
-        self.curve_b = self.plot.plot(pen=pg.mkPen("#ff8f73", width=2.0), name="Моргание")
-
-        # Снижаем нагрузку на отрисовку, чтобы график не «отставал».
-        for curve in (self.curve_a, self.curve_m, self.curve_b):
-            curve.setDownsampling(auto=True, method="peak")
-            curve.setClipToView(True)
+        self._setup_plot_curves()
 
         self.plot.setMinimumHeight(420)
         plot_layout.addWidget(self.plot, 1)
@@ -963,11 +1033,12 @@ class BridgeUI(QtWidgets.QWidget):
 
         for bar in (self.vbar_a, self.vbar_m):
             bar.setTextVisible(False)
-            bar.setFixedHeight(400)
-            bar.setFixedWidth(86)
+            bar.setMinimumHeight(260)
+            bar.setMinimumWidth(86)
+            bar.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
 
-        self.lbl_a_val = QtWidgets.QLabel("Конц: 0%")
-        self.lbl_m_val = QtWidgets.QLabel("Мед: 0%")
+        self.lbl_a_val = QtWidgets.QLabel("Концентрация: 0%")
+        self.lbl_m_val = QtWidgets.QLabel("Медитация: 0%")
         self.lbl_a_val.setAlignment(QtCore.Qt.AlignCenter)
         self.lbl_m_val.setAlignment(QtCore.Qt.AlignCenter)
         self.lbl_a_val.setStyleSheet("font-size:11pt; font-weight:800; color:#a5ffcf;")
@@ -975,13 +1046,13 @@ class BridgeUI(QtWidgets.QWidget):
 
         a_col = QtWidgets.QVBoxLayout()
         a_col.setSpacing(6)
-        a_col.addWidget(self.lbl_a_val)
         a_col.addWidget(self.vbar_a, 1, QtCore.Qt.AlignHCenter)
+        a_col.addWidget(self.lbl_a_val)
 
         m_col = QtWidgets.QVBoxLayout()
         m_col.setSpacing(6)
-        m_col.addWidget(self.lbl_m_val)
         m_col.addWidget(self.vbar_m, 1, QtCore.Qt.AlignHCenter)
+        m_col.addWidget(self.lbl_m_val)
 
         bars_layout.addLayout(a_col, 1)
         bars_layout.addLayout(m_col, 1)
@@ -989,10 +1060,10 @@ class BridgeUI(QtWidgets.QWidget):
         content_layout.addWidget(bars_panel, 0)
         content_layout.addWidget(plot_wrap, 1)
 
-        root.addWidget(content_box, 2)
+        root.addWidget(self.content_box, 2)
 
         # --- Footer ---
-        self.lbl_ports = QtWidgets.QLabel("🧠 NeuroTrack: —   |   🤖 Trackduino: —")
+        self.lbl_ports = QtWidgets.QLabel("")
         self.lbl_ports.setObjectName("footerBar")
         root.addWidget(self.lbl_ports)
 
@@ -1041,7 +1112,28 @@ class BridgeUI(QtWidgets.QWidget):
         self.autoconn_timer.timeout.connect(self.try_autoconnect)
         self.autoconn_timer.start(2000)
 
+        self.set_language(self.current_lang)
+
     # ---------- notifications ----------
+
+    def _setup_plot_curves(self):
+        t = self.i18n[self.current_lang]
+        self.plot.clear()
+        self.plot.addLegend()
+        self.curve_a = self.plot.plot(pen=pg.mkPen("#49e6a3", width=2.6), name=t["attention"])
+        self.curve_m = self.plot.plot(pen=pg.mkPen("#64beff", width=2.6), name=t["meditation"])
+        self.curve_b = self.plot.plot(pen=pg.mkPen("#ff8f73", width=2.0), name="Моргание" if self.current_lang == "ru" else "Blink")
+        for curve in (self.curve_a, self.curve_m, self.curve_b):
+            curve.setDownsampling(auto=True, method="peak")
+            curve.setClipToView(True)
+        x_hist = self.__dict__.get("x", [])
+        a_hist = self.__dict__.get("a_hist", [])
+        m_hist = self.__dict__.get("m_hist", [])
+        b_hist = self.__dict__.get("b_hist", [])
+        self.curve_a.setData(x_hist, a_hist)
+        self.curve_m.setData(x_hist, m_hist)
+        self.curve_b.setData(x_hist, b_hist)
+
     def _toast(self, title: str, text: str):
         now = time.time()
         # защита от спама: не чаще 1 раза в 3 секунды
@@ -1103,8 +1195,47 @@ class BridgeUI(QtWidgets.QWidget):
 
     def _sync_connection_flags(self):
         self._connected = self._neuro_connected or self._track_connected
-        self.btn_neuro_toggle.setText("Отключить NeuroTrack" if self._neuro_connected else "Подключить NeuroTrack")
-        self.btn_track_toggle.setText("Отключить Trackduino" if self._track_connected else "Подключить Trackduino")
+        t = self.i18n[self.current_lang]
+        self.btn_neuro_toggle.setText(t["btn_neuro_disconnect"] if self._neuro_connected else t["btn_neuro_connect"])
+        self.btn_track_toggle.setText(t["btn_track_disconnect"] if self._track_connected else t["btn_track_connect"])
+
+    def set_language(self, lang: str):
+        if lang not in self.i18n:
+            return
+        self.current_lang = lang
+        t = self.i18n[lang]
+
+        self.setWindowTitle(t["window_title"])
+        self.title.setText(t["hero_title"])
+        self.ports_box.setTitle(t["ports_group"])
+        self.state_box.setTitle(t["state_group"])
+        self.content_box.setTitle(t["content_group"])
+        self.lbl_neuro_port.setText(t["neuro_label"])
+        self.lbl_track_port.setText(t["track_label"])
+        self.auto_cb.setText(t["auto_connect"])
+        self.btn_refresh.setText(t["btn_refresh"])
+        self.btn_api_access.setText(t["api_access"])
+        if self.status_label.text().startswith(("Ожидание", "Waiting")):
+            self.status_label.setText(t["status_waiting"])
+
+        self.vbar_a.setFormat(f"{t['attention']}\n%v%")
+        self.vbar_m.setFormat(f"{t['meditation']}\n%v%")
+        self.lbl_a_val.setText(t["attention_value"].format(value=self.cur_a))
+        self.lbl_m_val.setText(t["meditation_value"].format(value=self.cur_m))
+        self.plot.setLabel("left", t["plot_level"], units="%")
+        self.plot.setLabel("bottom", t["plot_time"], units=t["plot_seconds"])
+        self._setup_plot_curves()
+
+        self._sync_connection_flags()
+        self.btn_lang_ru.setEnabled(lang != "ru")
+        self.btn_lang_en.setEnabled(lang != "en")
+        neuro = self.cb_neuro.currentData() if self._neuro_connected else "—"
+        track = self.cb_track.currentData() if self._track_connected else "—"
+        self.lbl_ports.setText(t["footer_ports"].format(neuro=neuro or "—", track=track or "—"))
+
+
+    def open_api_access(self):
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl("http://127.0.0.1:8765/stream"))
 
     def _connect_neuro(self):
         neuro = self.cb_neuro.currentData()
@@ -1131,7 +1262,8 @@ class BridgeUI(QtWidgets.QWidget):
         self._neuro_connected = True
         self._sync_connection_flags()
         track = self.cb_track.currentData() if self._track_connected else "—"
-        self.lbl_ports.setText(f"🧠 NeuroTrack: {neuro}   |   🤖 Trackduino: {track or '—'}")
+        t = self.i18n[self.current_lang]
+        self.lbl_ports.setText(t["footer_ports"].format(neuro=neuro, track=track or "—"))
 
     def _disconnect_neuro(self):
         self._neuro_connected = False
@@ -1144,7 +1276,7 @@ class BridgeUI(QtWidgets.QWidget):
             pass
 
         self.reader = None
-        self.status_label.setText("Ожидание подключения…")
+        self.status_label.setText(self.i18n[self.current_lang]["status_waiting"])
         self._sync_connection_flags()
 
     def _connect_track(self):
@@ -1180,7 +1312,8 @@ class BridgeUI(QtWidgets.QWidget):
         self._disconnect_neuro()
         self._disconnect_track()
 
-        self.lbl_ports.setText("🧠 NeuroTrack: —   |   🤖 Trackduino: —")
+        t = self.i18n[self.current_lang]
+        self.lbl_ports.setText(t["footer_ports"].format(neuro="—", track="—"))
 
     def closeEvent(self, event):
         self._disconnect_all()
@@ -1253,8 +1386,9 @@ class BridgeUI(QtWidgets.QWidget):
         # Обновляем индикаторы сразу при приходе данных (без ожидания on_periodic).
         self.vbar_a.setValue(self.cur_a)
         self.vbar_m.setValue(self.cur_m)
-        self.lbl_a_val.setText(f"Конц: {self.cur_a}%")
-        self.lbl_m_val.setText(f"Мед: {self.cur_m}%")
+        t = self.i18n[self.current_lang]
+        self.lbl_a_val.setText(t["attention_value"].format(value=self.cur_a))
+        self.lbl_m_val.setText(t["meditation_value"].format(value=self.cur_m))
 
         # neuro OK: poor==0 и есть актуальные данные
         neuro_ok = (self.cur_poor == 0) and (self._last_neuro_state == "Подключено")
@@ -1288,14 +1422,19 @@ class BridgeUI(QtWidgets.QWidget):
         if self.x:
             self.plot.setXRange(self.x[0], self.x[-1] if self.x[-1] > 10 else 10)
 
-        self.curve_a.setData(self.x, self.a_hist)
-        self.curve_m.setData(self.x, self.m_hist)
-        self.curve_b.setData(self.x, self.b_hist)
+        x = getattr(self, "x", [])
+        a_hist = getattr(self, "a_hist", [])
+        m_hist = getattr(self, "m_hist", [])
+        b_hist = getattr(self, "b_hist", [])
+        self.curve_a.setData(x, a_hist)
+        self.curve_m.setData(x, m_hist)
+        self.curve_b.setData(x, b_hist)
 
         self.vbar_a.setValue(self.cur_a)
         self.vbar_m.setValue(self.cur_m)
-        self.lbl_a_val.setText(f"Конц: {self.cur_a}%")
-        self.lbl_m_val.setText(f"Мед: {self.cur_m}%")
+        t = self.i18n[self.current_lang]
+        self.lbl_a_val.setText(t["attention_value"].format(value=self.cur_a))
+        self.lbl_m_val.setText(t["meditation_value"].format(value=self.cur_m))
 
 
     # ---------- autoconnect ----------
