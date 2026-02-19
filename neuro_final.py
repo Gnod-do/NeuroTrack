@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib import request as urllib_request
 from typing import List, Tuple, Optional, Dict
 
-from PyQt5 import QtWidgets, QtCore
+from PyQt5 import QtWidgets, QtCore, QtGui
 import pyqtgraph as pg
 import serial
 import serial.tools.list_ports
@@ -812,19 +812,20 @@ class BridgeUI(QtWidgets.QWidget):
         self.i18n = {
             "ru": {
                 "window_title": "Мост NeuroTrack ↔ Trackduino",
-                "hero_title": "NeuroTrack Command Center",
-                "hero_sub": "Метрики NeuroTrack в реальном времени, связь с Trackduino и локальный /stream endpoint",
-                "ports_group": "Порты устройств",
+                "hero_title": "Нейроинтерфейс Роботрек",
+                                "ports_group": "Порты устройств",
                 "state_group": "Состояние",
                 "content_group": "График и индикаторы",
-                "neuro_label": "🧠 NeuroTrack:",
-                "track_label": "🤖 Trackduino:",
+                "neuro_label": "🧠 Нейротрек:",
+                "track_label": "🤖 Трекдуино:",
                 "auto_connect": "Автоподключение при доступности",
                 "btn_neuro_connect": "Подключить NeuroTrack",
                 "btn_neuro_disconnect": "Отключить NeuroTrack",
                 "btn_track_connect": "Подключить Trackduino",
                 "btn_track_disconnect": "Отключить Trackduino",
                 "btn_refresh": "Обновить порты",
+                "api_access": "API access",
+                "footer_ports": "🧠 Нейротрек: {neuro}   |   🤖 Трекдуино: {track}",
                 "status_waiting": "Ожидание подключения…",
                 "attention": "Концентрация",
                 "meditation": "Медитация",
@@ -836,9 +837,8 @@ class BridgeUI(QtWidgets.QWidget):
             },
             "en": {
                 "window_title": "NeuroTrack ↔ Trackduino Bridge",
-                "hero_title": "NeuroTrack Command Center",
-                "hero_sub": "Real-time NeuroTrack metrics, Trackduino communication, and local /stream endpoint",
-                "ports_group": "Device Ports",
+                "hero_title": "Нейроинтерфейс Роботрек",
+                                "ports_group": "Device Ports",
                 "state_group": "Status",
                 "content_group": "Chart and Indicators",
                 "neuro_label": "🧠 NeuroTrack:",
@@ -849,6 +849,8 @@ class BridgeUI(QtWidgets.QWidget):
                 "btn_track_connect": "Connect Trackduino",
                 "btn_track_disconnect": "Disconnect Trackduino",
                 "btn_refresh": "Update Ports",
+                "api_access": "API access",
+                "footer_ports": "🧠 NeuroTrack: {neuro}   |   🤖 Trackduino: {track}",
                 "status_waiting": "Waiting for connection…",
                 "attention": "Concentration",
                 "meditation": "Meditation",
@@ -929,11 +931,7 @@ class BridgeUI(QtWidgets.QWidget):
         hero_txt = QtWidgets.QVBoxLayout()
         self.title = QtWidgets.QLabel("NeuroTrack Command Center")
         self.title.setObjectName("heroTitle")
-        self.subtitle = QtWidgets.QLabel("Real-time NeuroTrack metrics, Trackduino communication, and local /stream endpoint")
-        self.subtitle.setObjectName("heroSub")
-        self.subtitle.setWordWrap(True)
         hero_txt.addWidget(self.title)
-        hero_txt.addWidget(self.subtitle)
         hero_l.addLayout(hero_txt, 1)
 
         lang_wrap = QtWidgets.QWidget()
@@ -950,9 +948,10 @@ class BridgeUI(QtWidgets.QWidget):
         lang_l.addWidget(self.btn_lang_en)
         hero_l.addWidget(lang_wrap, 0, QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
 
-        self.badge_live = QtWidgets.QLabel("● LOCAL STREAM: http://127.0.0.1:8765/stream")
-        self.badge_live.setStyleSheet("QLabel { color:#c4d7ff; font-size:10pt; font-weight:600; }")
-        hero_l.addWidget(self.badge_live, 0, QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+        self.btn_api_access = QtWidgets.QPushButton("API access")
+        self.btn_api_access.setProperty("small", True)
+        self.btn_api_access.clicked.connect(self.open_api_access)
+        hero_l.addWidget(self.btn_api_access, 0, QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
         root.addWidget(hero)
 
         # --- Ports box ---
@@ -1064,7 +1063,7 @@ class BridgeUI(QtWidgets.QWidget):
         root.addWidget(self.content_box, 2)
 
         # --- Footer ---
-        self.lbl_ports = QtWidgets.QLabel("🧠 NeuroTrack: —   |   🤖 Trackduino: —")
+        self.lbl_ports = QtWidgets.QLabel("")
         self.lbl_ports.setObjectName("footerBar")
         root.addWidget(self.lbl_ports)
 
@@ -1208,7 +1207,6 @@ class BridgeUI(QtWidgets.QWidget):
 
         self.setWindowTitle(t["window_title"])
         self.title.setText(t["hero_title"])
-        self.subtitle.setText(t["hero_sub"])
         self.ports_box.setTitle(t["ports_group"])
         self.state_box.setTitle(t["state_group"])
         self.content_box.setTitle(t["content_group"])
@@ -1216,6 +1214,7 @@ class BridgeUI(QtWidgets.QWidget):
         self.lbl_track_port.setText(t["track_label"])
         self.auto_cb.setText(t["auto_connect"])
         self.btn_refresh.setText(t["btn_refresh"])
+        self.btn_api_access.setText(t["api_access"])
         if self.status_label.text().startswith(("Ожидание", "Waiting")):
             self.status_label.setText(t["status_waiting"])
 
@@ -1230,6 +1229,13 @@ class BridgeUI(QtWidgets.QWidget):
         self._sync_connection_flags()
         self.btn_lang_ru.setEnabled(lang != "ru")
         self.btn_lang_en.setEnabled(lang != "en")
+        neuro = self.cb_neuro.currentData() if self._neuro_connected else "—"
+        track = self.cb_track.currentData() if self._track_connected else "—"
+        self.lbl_ports.setText(t["footer_ports"].format(neuro=neuro or "—", track=track or "—"))
+
+
+    def open_api_access(self):
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl("http://127.0.0.1:8765/stream"))
 
     def _connect_neuro(self):
         neuro = self.cb_neuro.currentData()
@@ -1256,7 +1262,8 @@ class BridgeUI(QtWidgets.QWidget):
         self._neuro_connected = True
         self._sync_connection_flags()
         track = self.cb_track.currentData() if self._track_connected else "—"
-        self.lbl_ports.setText(f"🧠 NeuroTrack: {neuro}   |   🤖 Trackduino: {track or '—'}")
+        t = self.i18n[self.current_lang]
+        self.lbl_ports.setText(t["footer_ports"].format(neuro=neuro, track=track or "—"))
 
     def _disconnect_neuro(self):
         self._neuro_connected = False
@@ -1305,7 +1312,8 @@ class BridgeUI(QtWidgets.QWidget):
         self._disconnect_neuro()
         self._disconnect_track()
 
-        self.lbl_ports.setText("🧠 NeuroTrack: —   |   🤖 Trackduino: —")
+        t = self.i18n[self.current_lang]
+        self.lbl_ports.setText(t["footer_ports"].format(neuro="—", track="—"))
 
     def closeEvent(self, event):
         self._disconnect_all()
