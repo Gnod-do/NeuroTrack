@@ -1127,13 +1127,13 @@ class BridgeUI(QtWidgets.QWidget):
         for curve in (self.curve_a, self.curve_m, self.curve_b):
             curve.setDownsampling(auto=True, method="peak")
             curve.setClipToView(True)
-        x = getattr(self, "x", [])
-        a_hist = getattr(self, "a_hist", [])
-        m_hist = getattr(self, "m_hist", [])
-        b_hist = getattr(self, "b_hist", [])
-        self.curve_a.setData(x, a_hist)
-        self.curve_m.setData(x, m_hist)
-        self.curve_b.setData(x, b_hist)
+        x_hist = self.__dict__.get("x", [])
+        a_hist = self.__dict__.get("a_hist", [])
+        m_hist = self.__dict__.get("m_hist", [])
+        b_hist = self.__dict__.get("b_hist", [])
+        self.curve_a.setData(x_hist, a_hist)
+        self.curve_m.setData(x_hist, m_hist)
+        self.curve_b.setData(x_hist, b_hist)
 
     def _toast(self, title: str, text: str):
         now = time.time()
