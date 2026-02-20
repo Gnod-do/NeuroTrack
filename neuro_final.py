@@ -818,7 +818,7 @@ class BridgeUI(QtWidgets.QWidget):
         self.i18n = {
             "ru": {
                 "window_title": "Мост NeuroTrack ↔ Trackduino",
-                "hero_title": "Robotrack neural interface",
+                "hero_title": "Нейроинтерфейс Роботрек",
                                 "ports_group": "Порты устройств",
                 "state_group": "Состояние",
                 "content_group": "График и индикаторы",
