@@ -834,6 +834,8 @@ class BridgeUI(QtWidgets.QWidget):
                 "footer_ports": "🧠 Нейротрек: {neuro}   |   🤖 Трекдуино: {track}",
                 "status_waiting": "Ожидание подключения…",
                 "status_prefix": "состояние  нейротрек",
+                "api_info_title": "API",
+                "api_info_text": "API эндпоинт: http://127.0.0.1:8765/stream/data\n(Только чтение, без прямого доступа).",
                 "attention": "Концентрация",
                 "meditation": "Медитация",
                 "attention_value": "Концентрация: {value}%",
@@ -860,6 +862,8 @@ class BridgeUI(QtWidgets.QWidget):
                 "footer_ports": "🧠 NeuroTrack: {neuro}   |   🤖 Trackduino: {track}",
                 "status_waiting": "Waiting for connection…",
                 "status_prefix": "NeuroTrack status",
+                "api_info_title": "API",
+                "api_info_text": "API endpoint: http://127.0.0.1:8765/stream/data\n(Read-only, no direct access required).",
                 "attention": "Concentration",
                 "meditation": "Meditation",
                 "attention_value": "Concentration: {value}%",
@@ -1235,20 +1239,20 @@ class BridgeUI(QtWidgets.QWidget):
         self._setup_plot_curves()
 
         self._sync_connection_flags()
-        self.btn_lang_ru.setEnabled(lang != "ru")
-        self.btn_lang_en.setEnabled(lang != "en")
+        if self._last_neuro_state:
+            self.on_neuro_status(self._last_neuro_state)
+        elif not self._neuro_connected:
+            self.status_label.setText(t["status_waiting"])
+            self.status_label.setStyleSheet("font-weight:600;")
         neuro = self.cb_neuro.currentData() if self._neuro_connected else "—"
         track = self.cb_track.currentData() if self._track_connected else "—"
         self.lbl_ports.setText(t["footer_ports"].format(neuro=neuro or "—", track=track or "—"))
 
 
     def open_api_access(self):
-        QtWidgets.QMessageBox.information(
-            self,
-            "API",
-            "API endpoint: http://127.0.0.1:8765/stream/data\n"
-            "(Read-only, no direct access required).",
-        )
+        t = self.i18n[self.current_lang]
+        QtWidgets.QMessageBox.information(self, t["api_info_title"], t["api_info_text"])
+
 
     def _connect_neuro(self):
         neuro = self.cb_neuro.currentData()
