@@ -1250,8 +1250,7 @@ class BridgeUI(QtWidgets.QWidget):
 
 
     def open_api_access(self):
-        t = self.i18n[self.current_lang]
-        QtWidgets.QMessageBox.information(self, t["api_info_title"], t["api_info_text"])
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl("http://127.0.0.1:8765/stream"))
 
 
     def _connect_neuro(self):
