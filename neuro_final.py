@@ -875,7 +875,7 @@ class BridgeUI(QtWidgets.QWidget):
         }
 
         self.setWindowTitle("Мост NeuroTrack ↔ Trackduino")
-        self.setWindowIcon(self._build_app_icon())
+        self.setWindowIcon(self._load_app_icon())
         self.resize(1100, 760)
 
         self.setStyleSheet("""
@@ -943,7 +943,7 @@ class BridgeUI(QtWidgets.QWidget):
         hero_l.setContentsMargins(14, 10, 14, 10)
         hero_txt = QtWidgets.QVBoxLayout()
         self.logo_label = QtWidgets.QLabel()
-        self.logo_label.setPixmap(self._build_robotrack_logo())
+        self.logo_label.setPixmap(self._load_hero_logo())
         self.logo_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
         hero_txt.addWidget(self.logo_label, 0, QtCore.Qt.AlignLeft)
         self.title = QtWidgets.QLabel("NeuroTrack Command Center")
@@ -1152,7 +1152,26 @@ class BridgeUI(QtWidgets.QWidget):
         self.curve_b.setData(x_hist, b_hist)
 
     @staticmethod
-    def _build_robotrack_logo() -> QtGui.QPixmap:
+    def _asset_path(filename: str) -> str:
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
+
+    def _load_hero_logo(self) -> QtGui.QPixmap:
+        logo_path = self._asset_path("нейротрек.svg")
+        icon = QtGui.QIcon(logo_path)
+        pix = icon.pixmap(180, 52)
+        if not pix.isNull():
+            return pix
+        return self._fallback_robotrack_logo()
+
+    def _load_app_icon(self) -> QtGui.QIcon:
+        logo_path = self._asset_path("нейротрек.svg")
+        icon = QtGui.QIcon(logo_path)
+        if not icon.isNull():
+            return icon
+        return self._fallback_app_icon()
+
+    @staticmethod
+    def _fallback_robotrack_logo() -> QtGui.QPixmap:
         pix = QtGui.QPixmap(180, 52)
         pix.fill(QtCore.Qt.transparent)
         painter = QtGui.QPainter(pix)
@@ -1173,7 +1192,7 @@ class BridgeUI(QtWidgets.QWidget):
         return pix
 
     @staticmethod
-    def _build_app_icon() -> QtGui.QIcon:
+    def _fallback_app_icon() -> QtGui.QIcon:
         base = QtGui.QPixmap(128, 128)
         base.fill(QtCore.Qt.transparent)
         painter = QtGui.QPainter(base)
@@ -1189,12 +1208,6 @@ class BridgeUI(QtWidgets.QWidget):
         painter.drawEllipse(47, 66, 34, 34)
         painter.end()
         return QtGui.QIcon(base)
-
-    @staticmethod
-    def _is_trackduino_usb_port(name: str) -> bool:
-        n = (name or "").upper()
-        keywords = ("TRACKDUINO", "USB", "ARDUINO", "CH340", "CP210", "FTDI", "SILICON LABS")
-        return any(k in n for k in keywords)
 
     def _toast(self, title: str, text: str):
         now = time.time()
