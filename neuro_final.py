@@ -875,6 +875,7 @@ class BridgeUI(QtWidgets.QWidget):
         }
 
         self.setWindowTitle("Мост NeuroTrack ↔ Trackduino")
+        self.setWindowIcon(self._load_app_icon())
         self.resize(1100, 760)
 
         self.setStyleSheet("""
@@ -924,6 +925,7 @@ class BridgeUI(QtWidgets.QWidget):
             QCheckBox { spacing:8px; }
             QLabel#heroTitle { font-size:16pt; font-weight:800; color:#f5f8ff; }
             QLabel#heroSub { color:#a8bde4; font-size:10.5pt; }
+            QLabel#heroDot { background:#ffffff; border-radius:8px; min-width:16px; max-width:16px; min-height:16px; max-height:16px; }
             QLabel#footerBar {
                 background:rgba(10,18,36,.75);
                 border:1px solid #24365f;
@@ -941,9 +943,20 @@ class BridgeUI(QtWidgets.QWidget):
         hero_l = QtWidgets.QHBoxLayout(hero)
         hero_l.setContentsMargins(14, 10, 14, 10)
         hero_txt = QtWidgets.QVBoxLayout()
+        title_row = QtWidgets.QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(8)
+
+        self.logo_label = QtWidgets.QLabel()
+        self.logo_label.setObjectName("heroDot")
+        title_row.addWidget(self.logo_label, 0, QtCore.Qt.AlignVCenter)
+
         self.title = QtWidgets.QLabel("NeuroTrack Command Center")
         self.title.setObjectName("heroTitle")
-        hero_txt.addWidget(self.title)
+        title_row.addWidget(self.title, 0, QtCore.Qt.AlignVCenter)
+        title_row.addStretch(1)
+
+        hero_txt.addLayout(title_row)
         hero_l.addLayout(hero_txt, 1)
 
         lang_wrap = QtWidgets.QWidget()
@@ -1081,7 +1094,7 @@ class BridgeUI(QtWidgets.QWidget):
 
         # === internal state ===
         self.t0: Optional[float] = None
-        self.max_points = 400
+        self.max_points = 300  # 60 seconds at 200 ms update interval
 
         self.x: List[float] = []
         self.a_hist: List[int] = []
@@ -1146,6 +1159,64 @@ class BridgeUI(QtWidgets.QWidget):
         self.curve_m.setData(x_hist, m_hist)
         self.curve_b.setData(x_hist, b_hist)
 
+    @staticmethod
+    def _asset_path(filename: str) -> str:
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
+
+    def _load_hero_logo(self) -> QtGui.QPixmap:
+        logo_path = self._asset_path("нейротрек.svg")
+        icon = QtGui.QIcon(logo_path)
+        pix = icon.pixmap(180, 52)
+        if not pix.isNull():
+            return pix
+        return self._fallback_robotrack_logo()
+
+    def _load_app_icon(self) -> QtGui.QIcon:
+        logo_path = self._asset_path("нейротрек.svg")
+        icon = QtGui.QIcon(logo_path)
+        if not icon.isNull():
+            return icon
+        return self._fallback_app_icon()
+
+    @staticmethod
+    def _fallback_robotrack_logo() -> QtGui.QPixmap:
+        pix = QtGui.QPixmap(180, 52)
+        pix.fill(QtCore.Qt.transparent)
+        painter = QtGui.QPainter(pix)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        painter.setPen(QtGui.QPen(QtGui.QColor("#2f4e89"), 1))
+        painter.setBrush(QtGui.QColor("#ffffff"))
+        painter.drawRoundedRect(0, 0, 179, 51, 12, 12)
+        painter.setBrush(QtGui.QColor("#111111"))
+        painter.setPen(QtCore.Qt.NoPen)
+        painter.drawEllipse(10, 12, 28, 28)
+        painter.setPen(QtGui.QPen(QtGui.QColor("#111111")))
+        painter.setFont(QtGui.QFont("Arial", 12, QtGui.QFont.Bold))
+        painter.drawText(QtCore.QRect(46, 6, 128, 20), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, "ROBOTRACK")
+        painter.setFont(QtGui.QFont("Arial", 9, QtGui.QFont.Bold))
+        painter.setPen(QtGui.QPen(QtGui.QColor("#365efc")))
+        painter.drawText(QtCore.QRect(46, 26, 128, 18), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, "Neural Interface")
+        painter.end()
+        return pix
+
+    @staticmethod
+    def _fallback_app_icon() -> QtGui.QIcon:
+        base = QtGui.QPixmap(128, 128)
+        base.fill(QtCore.Qt.transparent)
+        painter = QtGui.QPainter(base)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        painter.setPen(QtCore.Qt.NoPen)
+        painter.setBrush(QtGui.QColor("#0f1d3d"))
+        painter.drawRoundedRect(4, 4, 120, 120, 26, 26)
+        painter.setBrush(QtGui.QColor("#4de39c"))
+        painter.drawEllipse(20, 20, 34, 34)
+        painter.setBrush(QtGui.QColor("#64beff"))
+        painter.drawEllipse(74, 20, 34, 34)
+        painter.setBrush(QtGui.QColor("#ff8f73"))
+        painter.drawEllipse(47, 66, 34, 34)
+        painter.end()
+        return QtGui.QIcon(base)
+
     def _toast(self, title: str, text: str):
         now = time.time()
         # защита от спама: не чаще 1 раза в 3 секунды
@@ -1184,6 +1255,11 @@ class BridgeUI(QtWidgets.QWidget):
             self.cb_neuro.setCurrentIndex(neuro_index)
         if track_index >= 0:
             self.cb_track.setCurrentIndex(track_index)
+        elif platform.system().lower() == "windows":
+            for i, (_dev, name) in enumerate(ports):
+                if self._is_trackduino_usb_port(name):
+                    self.cb_track.setCurrentIndex(i)
+                    break
 
         self.cb_neuro.blockSignals(False)
         self.cb_track.blockSignals(False)
@@ -1473,16 +1549,17 @@ class BridgeUI(QtWidgets.QWidget):
     def try_autoconnect(self):
         if not self.auto_cb.isChecked():
             return
-        if self._neuro_connected:
-            return
 
         # мягкое автоподключение: если есть выбранные порты – пытаемся
-        if self.cb_neuro.count() == 0:
-            return
+        if self.cb_neuro.count() > 0 and not self._neuro_connected:
+            neuro = self.cb_neuro.currentData()
+            if neuro:
+                self._connect_neuro()
 
-        neuro = self.cb_neuro.currentData()
-        if neuro:
-            self._connect_neuro()
+        if self.cb_track.count() > 0 and not self._track_connected:
+            track = self.cb_track.currentData()
+            if track:
+                self._connect_track()
 
 
 # ==============================
@@ -1492,6 +1569,7 @@ def main() -> int:
     app = QtWidgets.QApplication(sys.argv)
     pg.setConfigOptions(antialias=False)
     w = BridgeUI()
+    app.setWindowIcon(w.windowIcon())
     w.show()
 
     # Позволяет корректно завершать Qt-приложение по Ctrl+C без traceback.
