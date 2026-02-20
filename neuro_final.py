@@ -795,11 +795,17 @@ es.onerror=()=>setBadge(conn,'reconnecting…','err');
 def nice_state_color(s: str) -> str:
     return {
         "Отключено": "#ff3333",
+        "Disconnected": "#ff3333",
         "Нет сигнала": "#ff3333",
+        "No signal": "#ff3333",
         "Подключение...": "#ffcc00",
+        "Connecting...": "#ffcc00",
         "Плохой контакт": "#ffcc00",
+        "Poor contact": "#ffcc00",
         "Нейротрек снят": "#ffcc00",
+        "NeuroTrack removed": "#ffcc00",
         "Подключено": "#00cc66",
+        "Connected": "#00cc66",
     }.get(s, "#ff3333")
 
 
@@ -812,7 +818,7 @@ class BridgeUI(QtWidgets.QWidget):
         self.i18n = {
             "ru": {
                 "window_title": "Мост NeuroTrack ↔ Trackduino",
-                "hero_title": "Нейроинтерфейс Роботрек",
+                "hero_title": "Robotrack neural interface",
                                 "ports_group": "Порты устройств",
                 "state_group": "Состояние",
                 "content_group": "График и индикаторы",
@@ -824,9 +830,12 @@ class BridgeUI(QtWidgets.QWidget):
                 "btn_track_connect": "Подключить Trackduino",
                 "btn_track_disconnect": "Отключить Trackduino",
                 "btn_refresh": "Обновить порты",
-                "api_access": "API access",
+                "api_access": "API",
                 "footer_ports": "🧠 Нейротрек: {neuro}   |   🤖 Трекдуино: {track}",
                 "status_waiting": "Ожидание подключения…",
+                "status_prefix": "состояние  нейротрек",
+                "api_info_title": "API",
+                "api_info_text": "API эндпоинт: http://127.0.0.1:8765/stream/data\n(Только чтение, без прямого доступа).",
                 "attention": "Концентрация",
                 "meditation": "Медитация",
                 "attention_value": "Концентрация: {value}%",
@@ -837,7 +846,7 @@ class BridgeUI(QtWidgets.QWidget):
             },
             "en": {
                 "window_title": "NeuroTrack ↔ Trackduino Bridge",
-                "hero_title": "Нейроинтерфейс Роботрек",
+                "hero_title": "Robotrack neural interface",
                                 "ports_group": "Device Ports",
                 "state_group": "Status",
                 "content_group": "Chart and Indicators",
@@ -849,9 +858,12 @@ class BridgeUI(QtWidgets.QWidget):
                 "btn_track_connect": "Connect Trackduino",
                 "btn_track_disconnect": "Disconnect Trackduino",
                 "btn_refresh": "Update Ports",
-                "api_access": "API access",
+                "api_access": "API",
                 "footer_ports": "🧠 NeuroTrack: {neuro}   |   🤖 Trackduino: {track}",
                 "status_waiting": "Waiting for connection…",
+                "status_prefix": "NeuroTrack status",
+                "api_info_title": "API",
+                "api_info_text": "API endpoint: http://127.0.0.1:8765/stream/data\n(Read-only, no direct access required).",
                 "attention": "Concentration",
                 "meditation": "Meditation",
                 "attention_value": "Concentration: {value}%",
@@ -863,6 +875,7 @@ class BridgeUI(QtWidgets.QWidget):
         }
 
         self.setWindowTitle("Мост NeuroTrack ↔ Trackduino")
+        self.setWindowIcon(self._build_app_icon())
         self.resize(1100, 760)
 
         self.setStyleSheet("""
@@ -929,6 +942,10 @@ class BridgeUI(QtWidgets.QWidget):
         hero_l = QtWidgets.QHBoxLayout(hero)
         hero_l.setContentsMargins(14, 10, 14, 10)
         hero_txt = QtWidgets.QVBoxLayout()
+        self.logo_label = QtWidgets.QLabel()
+        self.logo_label.setPixmap(self._build_robotrack_logo())
+        self.logo_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
+        hero_txt.addWidget(self.logo_label, 0, QtCore.Qt.AlignLeft)
         self.title = QtWidgets.QLabel("NeuroTrack Command Center")
         self.title.setObjectName("heroTitle")
         hero_txt.addWidget(self.title)
@@ -1069,7 +1086,7 @@ class BridgeUI(QtWidgets.QWidget):
 
         # === internal state ===
         self.t0: Optional[float] = None
-        self.max_points = 400
+        self.max_points = 300  # 60 seconds at 200 ms update interval
 
         self.x: List[float] = []
         self.a_hist: List[int] = []
@@ -1134,6 +1151,51 @@ class BridgeUI(QtWidgets.QWidget):
         self.curve_m.setData(x_hist, m_hist)
         self.curve_b.setData(x_hist, b_hist)
 
+    @staticmethod
+    def _build_robotrack_logo() -> QtGui.QPixmap:
+        pix = QtGui.QPixmap(180, 52)
+        pix.fill(QtCore.Qt.transparent)
+        painter = QtGui.QPainter(pix)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        painter.setPen(QtGui.QPen(QtGui.QColor("#2f4e89"), 1))
+        painter.setBrush(QtGui.QColor("#ffffff"))
+        painter.drawRoundedRect(0, 0, 179, 51, 12, 12)
+        painter.setBrush(QtGui.QColor("#111111"))
+        painter.setPen(QtCore.Qt.NoPen)
+        painter.drawEllipse(10, 12, 28, 28)
+        painter.setPen(QtGui.QPen(QtGui.QColor("#111111")))
+        painter.setFont(QtGui.QFont("Arial", 12, QtGui.QFont.Bold))
+        painter.drawText(QtCore.QRect(46, 6, 128, 20), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, "ROBOTRACK")
+        painter.setFont(QtGui.QFont("Arial", 9, QtGui.QFont.Bold))
+        painter.setPen(QtGui.QPen(QtGui.QColor("#365efc")))
+        painter.drawText(QtCore.QRect(46, 26, 128, 18), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, "Neural Interface")
+        painter.end()
+        return pix
+
+    @staticmethod
+    def _build_app_icon() -> QtGui.QIcon:
+        base = QtGui.QPixmap(128, 128)
+        base.fill(QtCore.Qt.transparent)
+        painter = QtGui.QPainter(base)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        painter.setPen(QtCore.Qt.NoPen)
+        painter.setBrush(QtGui.QColor("#0f1d3d"))
+        painter.drawRoundedRect(4, 4, 120, 120, 26, 26)
+        painter.setBrush(QtGui.QColor("#4de39c"))
+        painter.drawEllipse(20, 20, 34, 34)
+        painter.setBrush(QtGui.QColor("#64beff"))
+        painter.drawEllipse(74, 20, 34, 34)
+        painter.setBrush(QtGui.QColor("#ff8f73"))
+        painter.drawEllipse(47, 66, 34, 34)
+        painter.end()
+        return QtGui.QIcon(base)
+
+    @staticmethod
+    def _is_trackduino_usb_port(name: str) -> bool:
+        n = (name or "").upper()
+        keywords = ("TRACKDUINO", "USB", "ARDUINO", "CH340", "CP210", "FTDI", "SILICON LABS")
+        return any(k in n for k in keywords)
+
     def _toast(self, title: str, text: str):
         now = time.time()
         # защита от спама: не чаще 1 раза в 3 секунды
@@ -1172,6 +1234,11 @@ class BridgeUI(QtWidgets.QWidget):
             self.cb_neuro.setCurrentIndex(neuro_index)
         if track_index >= 0:
             self.cb_track.setCurrentIndex(track_index)
+        elif platform.system().lower() == "windows":
+            for i, (_dev, name) in enumerate(ports):
+                if self._is_trackduino_usb_port(name):
+                    self.cb_track.setCurrentIndex(i)
+                    break
 
         self.cb_neuro.blockSignals(False)
         self.cb_track.blockSignals(False)
@@ -1227,8 +1294,11 @@ class BridgeUI(QtWidgets.QWidget):
         self._setup_plot_curves()
 
         self._sync_connection_flags()
-        self.btn_lang_ru.setEnabled(lang != "ru")
-        self.btn_lang_en.setEnabled(lang != "en")
+        if self._last_neuro_state:
+            self.on_neuro_status(self._last_neuro_state)
+        elif not self._neuro_connected:
+            self.status_label.setText(t["status_waiting"])
+            self.status_label.setStyleSheet("font-weight:600;")
         neuro = self.cb_neuro.currentData() if self._neuro_connected else "—"
         track = self.cb_track.currentData() if self._track_connected else "—"
         self.lbl_ports.setText(t["footer_ports"].format(neuro=neuro or "—", track=track or "—"))
@@ -1236,6 +1306,7 @@ class BridgeUI(QtWidgets.QWidget):
 
     def open_api_access(self):
         QtGui.QDesktopServices.openUrl(QtCore.QUrl("http://127.0.0.1:8765/stream"))
+
 
     def _connect_neuro(self):
         neuro = self.cb_neuro.currentData()
@@ -1353,14 +1424,30 @@ class BridgeUI(QtWidgets.QWidget):
         }
 
     # ---------- status handlers ----------
+    def _translate_neuro_state(self, s: str) -> str:
+        if self.current_lang == "en":
+            return {
+                "Подключение...": "Connecting...",
+                "Подключено": "Connected",
+                "Плохой контакт": "Poor contact",
+                "Нейротрек снят": "NeuroTrack removed",
+                "Нет сигнала": "No signal",
+                "Отключено": "Disconnected",
+            }.get(s, s)
+        return s
+
+    def _status_prefix(self) -> str:
+        return self.i18n[self.current_lang].get("status_prefix", "NeuroTrack")
+
     def on_neuro_status(self, s: str):
         self._last_neuro_state = s
-        self.status_label.setText(f"NeuroTrack: {s}")
-        self.status_label.setStyleSheet(f"font-weight:600; color:{nice_state_color(s)};")
+        shown_state = self._translate_neuro_state(s)
+        self.status_label.setText(f"{self._status_prefix()}: {shown_state}")
+        self.status_label.setStyleSheet(f"font-weight:600; color:{nice_state_color(shown_state)};")
 
         # уведомления по требованиям
         if s in ("Отключено", "Нет сигнала", "Плохой контакт", "Нейротрек снят"):
-            self._toast("NeuroTrack", f"Состояние NeuroTrack: {s}.")
+            self._toast("NeuroTrack", f"{self._status_prefix()}: {shown_state}.")
 
     def on_track_opened(self, ok: bool, msg: str):
         if not ok:
@@ -1441,16 +1528,17 @@ class BridgeUI(QtWidgets.QWidget):
     def try_autoconnect(self):
         if not self.auto_cb.isChecked():
             return
-        if self._neuro_connected:
-            return
 
         # мягкое автоподключение: если есть выбранные порты – пытаемся
-        if self.cb_neuro.count() == 0:
-            return
+        if self.cb_neuro.count() > 0 and not self._neuro_connected:
+            neuro = self.cb_neuro.currentData()
+            if neuro:
+                self._connect_neuro()
 
-        neuro = self.cb_neuro.currentData()
-        if neuro:
-            self._connect_neuro()
+        if self.cb_track.count() > 0 and not self._track_connected:
+            track = self.cb_track.currentData()
+            if track:
+                self._connect_track()
 
 
 # ==============================
@@ -1460,6 +1548,7 @@ def main() -> int:
     app = QtWidgets.QApplication(sys.argv)
     pg.setConfigOptions(antialias=False)
     w = BridgeUI()
+    app.setWindowIcon(w.windowIcon())
     w.show()
 
     # Позволяет корректно завершать Qt-приложение по Ctrl+C без traceback.
