@@ -925,6 +925,7 @@ class BridgeUI(QtWidgets.QWidget):
             QCheckBox { spacing:8px; }
             QLabel#heroTitle { font-size:16pt; font-weight:800; color:#f5f8ff; }
             QLabel#heroSub { color:#a8bde4; font-size:10.5pt; }
+            QLabel#heroDot { background:#ffffff; border-radius:8px; min-width:16px; max-width:16px; min-height:16px; max-height:16px; }
             QLabel#footerBar {
                 background:rgba(10,18,36,.75);
                 border:1px solid #24365f;
@@ -942,13 +943,20 @@ class BridgeUI(QtWidgets.QWidget):
         hero_l = QtWidgets.QHBoxLayout(hero)
         hero_l.setContentsMargins(14, 10, 14, 10)
         hero_txt = QtWidgets.QVBoxLayout()
+        title_row = QtWidgets.QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(8)
+
         self.logo_label = QtWidgets.QLabel()
-        self.logo_label.setPixmap(self._load_hero_logo())
-        self.logo_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
-        hero_txt.addWidget(self.logo_label, 0, QtCore.Qt.AlignLeft)
+        self.logo_label.setObjectName("heroDot")
+        title_row.addWidget(self.logo_label, 0, QtCore.Qt.AlignVCenter)
+
         self.title = QtWidgets.QLabel("NeuroTrack Command Center")
         self.title.setObjectName("heroTitle")
-        hero_txt.addWidget(self.title)
+        title_row.addWidget(self.title, 0, QtCore.Qt.AlignVCenter)
+        title_row.addStretch(1)
+
+        hero_txt.addLayout(title_row)
         hero_l.addLayout(hero_txt, 1)
 
         lang_wrap = QtWidgets.QWidget()
