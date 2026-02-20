@@ -795,11 +795,17 @@ es.onerror=()=>setBadge(conn,'reconnecting…','err');
 def nice_state_color(s: str) -> str:
     return {
         "Отключено": "#ff3333",
+        "Disconnected": "#ff3333",
         "Нет сигнала": "#ff3333",
+        "No signal": "#ff3333",
         "Подключение...": "#ffcc00",
+        "Connecting...": "#ffcc00",
         "Плохой контакт": "#ffcc00",
+        "Poor contact": "#ffcc00",
         "Нейротрек снят": "#ffcc00",
+        "NeuroTrack removed": "#ffcc00",
         "Подключено": "#00cc66",
+        "Connected": "#00cc66",
     }.get(s, "#ff3333")
 
 
@@ -824,9 +830,12 @@ class BridgeUI(QtWidgets.QWidget):
                 "btn_track_connect": "Подключить Trackduino",
                 "btn_track_disconnect": "Отключить Trackduino",
                 "btn_refresh": "Обновить порты",
-                "api_access": "API access",
+                "api_access": "API",
                 "footer_ports": "🧠 Нейротрек: {neuro}   |   🤖 Трекдуино: {track}",
                 "status_waiting": "Ожидание подключения…",
+                "status_prefix": "состояние  нейротрек",
+                "api_info_title": "API",
+                "api_info_text": "API эндпоинт: http://127.0.0.1:8765/stream/data\n(Только чтение, без прямого доступа).",
                 "attention": "Концентрация",
                 "meditation": "Медитация",
                 "attention_value": "Концентрация: {value}%",
@@ -837,7 +846,7 @@ class BridgeUI(QtWidgets.QWidget):
             },
             "en": {
                 "window_title": "NeuroTrack ↔ Trackduino Bridge",
-                "hero_title": "Нейроинтерфейс Роботрек",
+                "hero_title": "Robotrack neural interface",
                                 "ports_group": "Device Ports",
                 "state_group": "Status",
                 "content_group": "Chart and Indicators",
@@ -849,9 +858,12 @@ class BridgeUI(QtWidgets.QWidget):
                 "btn_track_connect": "Connect Trackduino",
                 "btn_track_disconnect": "Disconnect Trackduino",
                 "btn_refresh": "Update Ports",
-                "api_access": "API access",
+                "api_access": "API",
                 "footer_ports": "🧠 NeuroTrack: {neuro}   |   🤖 Trackduino: {track}",
                 "status_waiting": "Waiting for connection…",
+                "status_prefix": "NeuroTrack status",
+                "api_info_title": "API",
+                "api_info_text": "API endpoint: http://127.0.0.1:8765/stream/data\n(Read-only, no direct access required).",
                 "attention": "Concentration",
                 "meditation": "Meditation",
                 "attention_value": "Concentration: {value}%",
@@ -1227,8 +1239,11 @@ class BridgeUI(QtWidgets.QWidget):
         self._setup_plot_curves()
 
         self._sync_connection_flags()
-        self.btn_lang_ru.setEnabled(lang != "ru")
-        self.btn_lang_en.setEnabled(lang != "en")
+        if self._last_neuro_state:
+            self.on_neuro_status(self._last_neuro_state)
+        elif not self._neuro_connected:
+            self.status_label.setText(t["status_waiting"])
+            self.status_label.setStyleSheet("font-weight:600;")
         neuro = self.cb_neuro.currentData() if self._neuro_connected else "—"
         track = self.cb_track.currentData() if self._track_connected else "—"
         self.lbl_ports.setText(t["footer_ports"].format(neuro=neuro or "—", track=track or "—"))
@@ -1236,6 +1251,7 @@ class BridgeUI(QtWidgets.QWidget):
 
     def open_api_access(self):
         QtGui.QDesktopServices.openUrl(QtCore.QUrl("http://127.0.0.1:8765/stream"))
+
 
     def _connect_neuro(self):
         neuro = self.cb_neuro.currentData()
@@ -1353,14 +1369,30 @@ class BridgeUI(QtWidgets.QWidget):
         }
 
     # ---------- status handlers ----------
+    def _translate_neuro_state(self, s: str) -> str:
+        if self.current_lang == "en":
+            return {
+                "Подключение...": "Connecting...",
+                "Подключено": "Connected",
+                "Плохой контакт": "Poor contact",
+                "Нейротрек снят": "NeuroTrack removed",
+                "Нет сигнала": "No signal",
+                "Отключено": "Disconnected",
+            }.get(s, s)
+        return s
+
+    def _status_prefix(self) -> str:
+        return self.i18n[self.current_lang].get("status_prefix", "NeuroTrack")
+
     def on_neuro_status(self, s: str):
         self._last_neuro_state = s
-        self.status_label.setText(f"NeuroTrack: {s}")
-        self.status_label.setStyleSheet(f"font-weight:600; color:{nice_state_color(s)};")
+        shown_state = self._translate_neuro_state(s)
+        self.status_label.setText(f"{self._status_prefix()}: {shown_state}")
+        self.status_label.setStyleSheet(f"font-weight:600; color:{nice_state_color(shown_state)};")
 
         # уведомления по требованиям
         if s in ("Отключено", "Нет сигнала", "Плохой контакт", "Нейротрек снят"):
-            self._toast("NeuroTrack", f"Состояние NeuroTrack: {s}.")
+            self._toast("NeuroTrack", f"{self._status_prefix()}: {shown_state}.")
 
     def on_track_opened(self, ok: bool, msg: str):
         if not ok:
