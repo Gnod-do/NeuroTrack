@@ -1255,11 +1255,10 @@ class BridgeUI(QtWidgets.QWidget):
             self.cb_neuro.setCurrentIndex(neuro_index)
         if track_index >= 0:
             self.cb_track.setCurrentIndex(track_index)
-        elif platform.system().lower() == "windows":
-            for i, (_dev, name) in enumerate(ports):
-                if self._is_trackduino_usb_port(name):
-                    self.cb_track.setCurrentIndex(i)
-                    break
+        else:
+            # Не делаем "слепой" выбор первого порта Trackduino в списке.
+            # Список остаётся нейтральным, а авто-детект выполняется в момент подключения.
+            self.cb_track.setCurrentIndex(-1)
 
         self.cb_neuro.blockSignals(False)
         self.cb_track.blockSignals(False)
@@ -1267,6 +1266,25 @@ class BridgeUI(QtWidgets.QWidget):
     def on_ports_timer(self):
         # обновляем раз в 10 секунд, но стараемся не мешать пользователю
         self.refresh_ports()
+
+    @staticmethod
+    def _is_trackduino_usb_port(port_name: str) -> bool:
+        """
+        Эвристика для Windows: пытаемся выбрать USB-порт Trackduino по friendly name.
+        Используем безопасный набор ключевых слов, чтобы не падать, если нет точного матча.
+        """
+        normalized = (port_name or "").casefold()
+        markers = (
+            "trackduino",
+            "robotrack",
+            "arduino",
+            "usb serial",
+            "usb-serial",
+            "ch340",
+            "cp210",
+            "ftdi",
+        )
+        return any(marker in normalized for marker in markers)
 
     # ---------- connect / disconnect ----------
     def on_toggle_neuro(self):
@@ -1373,6 +1391,11 @@ class BridgeUI(QtWidgets.QWidget):
 
     def _connect_track(self):
         track = self.cb_track.currentData()
+        if not track:
+            autodetect_index = self._find_trackduino_port_index()
+            if autodetect_index >= 0:
+                self.cb_track.setCurrentIndex(autodetect_index)
+                track = self.cb_track.currentData()
         if not track:
             QtWidgets.QMessageBox.warning(self, "Trackduino", "Не выбран порт Trackduino.")
             return
@@ -1558,8 +1581,20 @@ class BridgeUI(QtWidgets.QWidget):
 
         if self.cb_track.count() > 0 and not self._track_connected:
             track = self.cb_track.currentData()
+            if not track:
+                autodetect_index = self._find_trackduino_port_index()
+                if autodetect_index >= 0:
+                    self.cb_track.setCurrentIndex(autodetect_index)
+                    track = self.cb_track.currentData()
             if track:
                 self._connect_track()
+
+    def _find_trackduino_port_index(self) -> int:
+        for i in range(self.cb_track.count()):
+            name = self.cb_track.itemText(i)
+            if self._is_trackduino_usb_port(name):
+                return i
+        return -1
 
 
 # ==============================
