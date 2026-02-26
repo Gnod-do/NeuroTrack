@@ -225,7 +225,8 @@ class VerticalBar(QtWidgets.QProgressBar):
 class NeuroReader(QtCore.QThread):
     """
     Читает ThinkGear пакеты и выдаёт:
-    attention (0–100), meditation (0–100), blink (0–100), poor_signal (0–200)
+    attention (0–100), meditation (0–100), poor_signal (0–200)
+    Blink-сигнал отключён по требованию.
     """
     sample = QtCore.pyqtSignal(int, int, int, int)
     status = QtCore.pyqtSignal(str)
@@ -239,9 +240,6 @@ class NeuroReader(QtCore.QThread):
 
         self._last_status = ""
 
-        # Отладка blink-кода (0x16): включается через переменную среды NT_DEBUG_BLINK=1
-        self._debug_blink = os.getenv("NT_DEBUG_BLINK", "0").strip().lower() in {"1", "true", "yes", "on"}
-        self._last_blink_debug_ts = 0.0
 
     def stop(self):
         self._run = False
@@ -250,31 +248,6 @@ class NeuroReader(QtCore.QThread):
         if s != self._last_status:
             self._last_status = s
             self.status.emit(s)
-
-    @staticmethod
-    def _blink_to_0_100(v: int) -> int:
-        # TGAM blink обычно 0..255, приводим к 0..100
-        if v <= 0:
-            return 0
-        if v >= 255:
-            return 100
-        return int(round(v * 100.0 / 255.0))
-
-    def _debug_log_blink(self, payload: bytes, had_blink_code: bool, blink_raw: Optional[int]):
-        if not self._debug_blink:
-            return
-
-        now = time.time()
-        if had_blink_code:
-            self._last_blink_debug_ts = now
-            print(f"[BLINK-DEBUG] code=0x16 raw={blink_raw} mapped={self._blink_to_0_100(int(blink_raw or 0))}")
-            return
-
-        # Чтобы не спамить: не чаще раза в 2 секунды пишем отсутствие 0x16.
-        if now - self._last_blink_debug_ts >= 2.0:
-            self._last_blink_debug_ts = now
-            hex_payload = payload.hex(" ")
-            print(f"[BLINK-DEBUG] no 0x16 in payload (len={len(payload)}): {hex_payload}")
 
     def run(self):
         try:
@@ -288,7 +261,6 @@ class NeuroReader(QtCore.QThread):
 
         attention = 0
         meditation = 0
-        blink_0_100 = 0
         poor = 200  # по умолчанию "плохой"
 
         while self._run:
@@ -300,8 +272,6 @@ class NeuroReader(QtCore.QThread):
 
                     for payload in packets:
                         i = 0
-                        had_blink_code = False
-                        blink_raw: Optional[int] = None
                         while i < len(payload):
                             code = payload[i]
                             i += 1
@@ -328,14 +298,6 @@ class NeuroReader(QtCore.QThread):
                                 i += 1
                                 continue
 
-                            # Blink strength (0x16)
-                            if code == 0x16 and i < len(payload):
-                                blink_raw = int(payload[i])
-                                had_blink_code = True
-                                blink_0_100 = self._blink_to_0_100(blink_raw)
-                                i += 1
-                                continue
-
                             # multi-byte values: code >= 0x80, next is length
                             if code >= 0x80 and i < len(payload):
                                 ln = payload[i]
@@ -345,29 +307,28 @@ class NeuroReader(QtCore.QThread):
                             # single-byte unknown
                             # nothing else to do
 
-                        self._debug_log_blink(payload, had_blink_code, blink_raw)
-
                         self._last_data_ts = time.time()
                         if not self._has_first_packet:
                             self._has_first_packet = True
 
-                        # статус по poor
+                        # статус по poor: при плохом контакте сбрасываем значения в 0,
+                        # чтобы график не "жил" старыми/шумными данными.
                         if poor == 0:
                             self._emit_status("Подключено")
+                            out_a, out_m = attention, meditation
                         else:
-                            # Требование: формулировка "Нейротрек снят"
                             self._emit_status("Нейротрек снят")
+                            out_a, out_m = 0, 0
 
-                        self.sample.emit(attention, meditation, blink_0_100, poor)
+                        self.sample.emit(out_a, out_m, 0, poor)
 
                 else:
                     elapsed = time.time() - self._last_data_ts
                     if not self._has_first_packet:
                         self._emit_status("Подключение...")
                     elif elapsed > 10:
-                        self._emit_status("Нет сигнала")
+                        self._emit_status("Нейротрек снят")
                     elif elapsed > 5:
-                        # если раньше poor==0, но теперь тишина – считаем плохим контактом
                         self._emit_status("Плохой контакт")
 
             except Exception:
@@ -650,7 +611,6 @@ pre{margin:0;background:#0a1224;border:1px solid #213459;border-radius:12px;padd
     </div>
     <div class="badges">
       <div id="conn" class="badge">connecting…</div>
-      <div id="blinkTx" class="badge">blink: waiting…</div>
     </div>
   </div>
 
@@ -667,19 +627,12 @@ pre{margin:0;background:#0a1224;border:1px solid #213459;border-radius:12px;padd
       <div class="track"><div id="mBar" class="fill med"></div></div>
     </section>
 
-    <section class="card metric">
-      <div class="name">Blink (b)</div>
-      <div id="bVal" class="value">0%</div>
-      <div class="track"><div id="bBar" class="fill bli"></div></div>
-    </section>
-
     <section class="card side">
       <div class="meta">
         <div class="kv"><span id="pktDot" class="dot"></span><span id="pktInfo">Нет входящих событий</span></div>
         <div>Последнее обновление: <b id="updated">—</b></div>
       </div>
       <pre id="raw">Ожидание данных…</pre>
-      <div class="hint">Если поле <code>n.b</code> отсутствует, индикатор blink станет красным.</div>
     </section>
   </div>
 </div>
@@ -688,39 +641,28 @@ pre{margin:0;background:#0a1224;border:1px solid #213459;border-radius:12px;padd
 const clamp=v=>Math.max(0,Math.min(100,Number(v)||0));
 const raw=document.getElementById('raw');
 const conn=document.getElementById('conn');
-const blinkTx=document.getElementById('blinkTx');
 const updated=document.getElementById('updated');
 const pktDot=document.getElementById('pktDot');
 const pktInfo=document.getElementById('pktInfo');
 const aVal=document.getElementById('aVal');
 const mVal=document.getElementById('mVal');
-const bVal=document.getElementById('bVal');
 const aBar=document.getElementById('aBar');
 const mBar=document.getElementById('mBar');
-const bBar=document.getElementById('bBar');
 
 function setBadge(el,text,kind){el.textContent=text;el.classList.remove('ok','err');if(kind)el.classList.add(kind)}
 
 function paint(obj){
   const n=(obj&&obj.n)?obj.n:{};
-  const hasBlink=Object.prototype.hasOwnProperty.call(n,'b');
-  const a=clamp(n.a), m=clamp(n.m), b=clamp(n.b);
+  const a=clamp(n.a), m=clamp(n.m);
 
-  aVal.textContent=`${a}%`; mVal.textContent=`${m}%`; bVal.textContent=`${b}%`;
-  aBar.style.width=`${a}%`; mBar.style.width=`${m}%`; bBar.style.width=`${b}%`;
+  aVal.textContent=`${a}%`; mVal.textContent=`${m}%`;
+  aBar.style.width=`${a}%`; mBar.style.width=`${m}%`;
 
   raw.textContent=JSON.stringify(obj,null,2);
   updated.textContent=new Date().toLocaleTimeString();
   pktDot.classList.remove('err'); pktDot.classList.add('ok');
   pktInfo.textContent='Пакет получен';
 
-  if(hasBlink){
-    setBadge(blinkTx,`blink: OK (${b}%)`,'ok');
-  }else{
-    setBadge(blinkTx,'blink: missing field b','err');
-    pktDot.classList.remove('ok'); pktDot.classList.add('err');
-    pktInfo.textContent='Внимание: в пакете нет поля n.b';
-  }
 }
 
 const es=new EventSource('/stream/data');
@@ -796,8 +738,6 @@ def nice_state_color(s: str) -> str:
     return {
         "Отключено": "#ff3333",
         "Disconnected": "#ff3333",
-        "Нет сигнала": "#ff3333",
-        "No signal": "#ff3333",
         "Подключение...": "#ffcc00",
         "Connecting...": "#ffcc00",
         "Плохой контакт": "#ffcc00",
@@ -923,9 +863,16 @@ class BridgeUI(QtWidgets.QWidget):
                 color:#e9f0ff;
             }
             QCheckBox { spacing:8px; }
-            QLabel#heroTitle { font-size:16pt; font-weight:800; color:#f5f8ff; }
+            QLabel#heroTitle {
+                font-size:16pt;
+                font-weight:800;
+                color:#f5f8ff;
+                background:rgba(54,94,252,0.17);
+                border:1px solid #4a6dfd;
+                border-radius:17px;
+                padding:4px 14px;
+            }
             QLabel#heroSub { color:#a8bde4; font-size:10.5pt; }
-            QLabel#heroDot { background:#ffffff; border-radius:8px; min-width:16px; max-width:16px; min-height:16px; max-height:16px; }
             QLabel#footerBar {
                 background:rgba(10,18,36,.75);
                 border:1px solid #24365f;
@@ -946,10 +893,6 @@ class BridgeUI(QtWidgets.QWidget):
         title_row = QtWidgets.QHBoxLayout()
         title_row.setContentsMargins(0, 0, 0, 0)
         title_row.setSpacing(8)
-
-        self.logo_label = QtWidgets.QLabel()
-        self.logo_label.setObjectName("heroDot")
-        title_row.addWidget(self.logo_label, 0, QtCore.Qt.AlignVCenter)
 
         self.title = QtWidgets.QLabel("NeuroTrack Command Center")
         self.title.setObjectName("heroTitle")
@@ -1099,7 +1042,6 @@ class BridgeUI(QtWidgets.QWidget):
         self.x: List[float] = []
         self.a_hist: List[int] = []
         self.m_hist: List[int] = []
-        self.b_hist: List[int] = []
 
         self.cur_a = 0
         self.cur_m = 0
@@ -1116,6 +1058,7 @@ class BridgeUI(QtWidgets.QWidget):
         self._last_neuro_state = ""
         self._last_track_state = ""
         self._last_toast_ts = 0.0
+        self._status_hold_until = 0.0
 
         # HTTP-экспорт текущих данных на localhost
         self.local_server = LocalhostDataServer(self._collect_export_payload, "127.0.0.1", 8765)
@@ -1147,17 +1090,14 @@ class BridgeUI(QtWidgets.QWidget):
         self.plot.addLegend()
         self.curve_a = self.plot.plot(pen=pg.mkPen("#49e6a3", width=2.6), name=t["attention"])
         self.curve_m = self.plot.plot(pen=pg.mkPen("#64beff", width=2.6), name=t["meditation"])
-        self.curve_b = self.plot.plot(pen=pg.mkPen("#ff8f73", width=2.0), name="Моргание" if self.current_lang == "ru" else "Blink")
-        for curve in (self.curve_a, self.curve_m, self.curve_b):
+        for curve in (self.curve_a, self.curve_m):
             curve.setDownsampling(auto=True, method="peak")
             curve.setClipToView(True)
         x_hist = self.__dict__.get("x", [])
         a_hist = self.__dict__.get("a_hist", [])
         m_hist = self.__dict__.get("m_hist", [])
-        b_hist = self.__dict__.get("b_hist", [])
         self.curve_a.setData(x_hist, a_hist)
         self.curve_m.setData(x_hist, m_hist)
-        self.curve_b.setData(x_hist, b_hist)
 
     @staticmethod
     def _asset_path(filename: str) -> str:
@@ -1223,7 +1163,7 @@ class BridgeUI(QtWidgets.QWidget):
         if now - self._last_toast_ts < 3:
             return
         self._last_toast_ts = now
-        t = Toast(self, title, text, timeout_ms=20000)
+        t = Toast(self, title, text, timeout_ms=2000)
         t.show()
 
     # ---------- ports ----------
@@ -1243,9 +1183,10 @@ class BridgeUI(QtWidgets.QWidget):
         track_index = -1
 
         for i, (dev, name) in enumerate(ports):
-            label = f"{dev} — {name}"
-            self.cb_neuro.addItem(label, dev)
-            self.cb_track.addItem(label, dev)
+            neuro_label = f"{dev} — {name}"
+            track_label = f"{dev} — {self._track_port_display_name(name)}"
+            self.cb_neuro.addItem(neuro_label, dev)
+            self.cb_track.addItem(track_label, dev)
             if dev == prev_neuro:
                 neuro_index = i
             if dev == prev_track:
@@ -1255,11 +1196,10 @@ class BridgeUI(QtWidgets.QWidget):
             self.cb_neuro.setCurrentIndex(neuro_index)
         if track_index >= 0:
             self.cb_track.setCurrentIndex(track_index)
-        elif platform.system().lower() == "windows":
-            for i, (_dev, name) in enumerate(ports):
-                if self._is_trackduino_usb_port(name):
-                    self.cb_track.setCurrentIndex(i)
-                    break
+        else:
+            # Не делаем "слепой" выбор первого порта Trackduino в списке.
+            # Список остаётся нейтральным, а авто-детект выполняется в момент подключения.
+            self.cb_track.setCurrentIndex(-1)
 
         self.cb_neuro.blockSignals(False)
         self.cb_track.blockSignals(False)
@@ -1267,6 +1207,32 @@ class BridgeUI(QtWidgets.QWidget):
     def on_ports_timer(self):
         # обновляем раз в 10 секунд, но стараемся не мешать пользователю
         self.refresh_ports()
+
+    @staticmethod
+    def _is_trackduino_usb_port(port_name: str) -> bool:
+        """
+        Эвристика для Windows: пытаемся выбрать USB-порт Trackduino по friendly name.
+        Используем безопасный набор ключевых слов, чтобы не падать, если нет точного матча.
+        """
+        normalized = (port_name or "").casefold()
+        markers = (
+            "trackduino",
+            "robotrack",
+            "arduino",
+            "usb serial",
+            "usb-serial",
+            "ch340",
+            "cp210",
+            "ftdi",
+        )
+        return any(marker in normalized for marker in markers)
+
+    @staticmethod
+    def _track_port_display_name(port_name: str) -> str:
+        normalized = (port_name or "").casefold()
+        if "usb serial" in normalized or "usb-serial" in normalized or "nrackduino" in normalized:
+            return "Trackduino"
+        return port_name
 
     # ---------- connect / disconnect ----------
     def on_toggle_neuro(self):
@@ -1322,7 +1288,8 @@ class BridgeUI(QtWidgets.QWidget):
             self.status_label.setStyleSheet("font-weight:600;")
         neuro = self.cb_neuro.currentData() if self._neuro_connected else "—"
         track = self.cb_track.currentData() if self._track_connected else "—"
-        self.lbl_ports.setText(t["footer_ports"].format(neuro=neuro or "—", track=track or "—"))
+        track_state = self._translate_track_state(self._last_track_state) if self._track_connected else (track or "—")
+        self.lbl_ports.setText(t["footer_ports"].format(neuro=neuro or "—", track=track_state))
 
 
     def open_api_access(self):
@@ -1340,9 +1307,9 @@ class BridgeUI(QtWidgets.QWidget):
 
         self.t0 = None
         self._has_live_sample = False
-        self.x.clear(); self.a_hist.clear(); self.m_hist.clear(); self.b_hist.clear()
+        self.x.clear(); self.a_hist.clear(); self.m_hist.clear()
 
-        self.cur_a = self.cur_m = self.cur_b = 0
+        self.cur_a = self.cur_m = 0
         self.cur_poor = 200
 
         # Neuro
@@ -1368,13 +1335,27 @@ class BridgeUI(QtWidgets.QWidget):
             pass
 
         self.reader = None
+        self.cur_a = self.cur_m = 0
+        self.cur_poor = 200
+        if self.bridge and self.bridge.isRunning():
+            self.bridge.set_neuro_values(0, 0, 0, False)
         self.status_label.setText(self.i18n[self.current_lang]["status_waiting"])
         self._sync_connection_flags()
 
     def _connect_track(self):
         track = self.cb_track.currentData()
         if not track:
+            autodetect_index = self._find_trackduino_port_index()
+            if autodetect_index >= 0:
+                self.cb_track.setCurrentIndex(autodetect_index)
+                track = self.cb_track.currentData()
+        if not track:
             QtWidgets.QMessageBox.warning(self, "Trackduino", "Не выбран порт Trackduino.")
+            return
+
+        neuro_selected = self.cb_neuro.currentData()
+        if neuro_selected and track == neuro_selected:
+            QtWidgets.QMessageBox.warning(self, "Trackduino", "Trackduino и NeuroTrack не могут использовать один и тот же COM-порт.")
             return
 
         if self._track_connected:
@@ -1426,23 +1407,6 @@ class BridgeUI(QtWidgets.QWidget):
             }
         }
 
-    def closeEvent(self, event):
-        try:
-            self.local_server.stop()
-        except Exception:
-            pass
-        super().closeEvent(event)
-
-    def _collect_export_payload(self) -> Dict[str, object]:
-        # Формат строго по требованию интеграции:
-        # <{"n":{"a":A,"m":M,"b":B}}>
-        return {
-            "n": {
-                "a": int(self.cur_a),
-                "m": int(self.cur_m),
-                "b": int(self.cur_b),
-            }
-        }
 
     # ---------- status handlers ----------
     def _translate_neuro_state(self, s: str) -> str:
@@ -1452,7 +1416,14 @@ class BridgeUI(QtWidgets.QWidget):
                 "Подключено": "Connected",
                 "Плохой контакт": "Poor contact",
                 "Нейротрек снят": "NeuroTrack removed",
-                "Нет сигнала": "No signal",
+                "Отключено": "Disconnected",
+            }.get(s, s)
+        return s
+
+    def _translate_track_state(self, s: str) -> str:
+        if self.current_lang == "en":
+            return {
+                "Подключено": "Connected",
                 "Отключено": "Disconnected",
             }.get(s, s)
         return s
@@ -1463,28 +1434,52 @@ class BridgeUI(QtWidgets.QWidget):
     def on_neuro_status(self, s: str):
         self._last_neuro_state = s
         shown_state = self._translate_neuro_state(s)
+        now = time.time()
+        critical_states = {"Отключено", "Плохой контакт", "Нейротрек снят"}
+
+        if now < self._status_hold_until and s not in critical_states:
+            return
+
         self.status_label.setText(f"{self._status_prefix()}: {shown_state}")
         self.status_label.setStyleSheet(f"font-weight:600; color:{nice_state_color(shown_state)};")
 
-        # уведомления по требованиям
-        if s in ("Отключено", "Нет сигнала", "Плохой контакт", "Нейротрек снят"):
+        if s in critical_states:
+            self._status_hold_until = now + 2.0
+            self.cur_a = self.cur_m = 0
+            self.cur_poor = 200
+            self.vbar_a.setValue(0)
+            self.vbar_m.setValue(0)
+            t = self.i18n[self.current_lang]
+            self.lbl_a_val.setText(t["attention_value"].format(value=0))
+            self.lbl_m_val.setText(t["meditation_value"].format(value=0))
+            if self.bridge and self.bridge.isRunning():
+                self.bridge.set_neuro_values(0, 0, 0, False)
             self._toast("NeuroTrack", f"{self._status_prefix()}: {shown_state}.")
 
     def on_track_opened(self, ok: bool, msg: str):
         if not ok:
             self._toast("Trackduino", msg)
-        self.lbl_ports.setText(msg)
+            self._track_connected = False
+            self.bridge = None
+            self._sync_connection_flags()
+        t = self.i18n[self.current_lang]
+        neuro = self.cb_neuro.currentData() if self._neuro_connected else "—"
+        track_state = self._translate_track_state("Подключено" if ok else "Отключено")
+        self.lbl_ports.setText(t["footer_ports"].format(neuro=neuro or "—", track=track_state))
 
     def on_track_status(self, s: str):
         self._last_track_state = s
         if s == "Отключено":
-            self._toast("Trackduino", "Trackduino отключено или потерян COM-порт.")
+            self._track_connected = False
+            self.bridge = None
+            self._sync_connection_flags()
+            self._toast("Trackduino", "Trackduino disconnected or COM port lost." if self.current_lang == "en" else "Trackduino отключено или потерян COM-порт.")
 
     # ---------- samples ----------
     def on_sample(self, a: int, m: int, b: int, poor: int):
         self.cur_a = int(max(0, min(100, a)))
         self.cur_m = int(max(0, min(100, m)))
-        self.cur_b = int(max(0, min(100, b)))
+        self.cur_b = 0
         self.cur_poor = int(max(0, min(200, poor)))
 
         if not self._has_live_sample:
@@ -1503,7 +1498,7 @@ class BridgeUI(QtWidgets.QWidget):
 
         # отправляем значения в TrackBridge
         if self.bridge and self.bridge.isRunning():
-            self.bridge.set_neuro_values(self.cur_a, self.cur_m, self.cur_b, neuro_ok)
+            self.bridge.set_neuro_values(self.cur_a, self.cur_m, 0, neuro_ok)
 
     # ---------- periodic UI update ----------
     def on_periodic(self):
@@ -1519,13 +1514,11 @@ class BridgeUI(QtWidgets.QWidget):
         self.x.append(t)
         self.a_hist.append(self.cur_a)
         self.m_hist.append(self.cur_m)
-        self.b_hist.append(self.cur_b)
 
         if len(self.x) > self.max_points:
             self.x = self.x[-self.max_points:]
             self.a_hist = self.a_hist[-self.max_points:]
             self.m_hist = self.m_hist[-self.max_points:]
-            self.b_hist = self.b_hist[-self.max_points:]
 
         if self.x:
             self.plot.setXRange(self.x[0], self.x[-1] if self.x[-1] > 10 else 10)
@@ -1533,10 +1526,8 @@ class BridgeUI(QtWidgets.QWidget):
         x = getattr(self, "x", [])
         a_hist = getattr(self, "a_hist", [])
         m_hist = getattr(self, "m_hist", [])
-        b_hist = getattr(self, "b_hist", [])
         self.curve_a.setData(x, a_hist)
         self.curve_m.setData(x, m_hist)
-        self.curve_b.setData(x, b_hist)
 
         self.vbar_a.setValue(self.cur_a)
         self.vbar_m.setValue(self.cur_m)
@@ -1558,8 +1549,20 @@ class BridgeUI(QtWidgets.QWidget):
 
         if self.cb_track.count() > 0 and not self._track_connected:
             track = self.cb_track.currentData()
+            if not track:
+                autodetect_index = self._find_trackduino_port_index()
+                if autodetect_index >= 0:
+                    self.cb_track.setCurrentIndex(autodetect_index)
+                    track = self.cb_track.currentData()
             if track:
                 self._connect_track()
+
+    def _find_trackduino_port_index(self) -> int:
+        for i in range(self.cb_track.count()):
+            name = self.cb_track.itemText(i)
+            if self._is_trackduino_usb_port(name):
+                return i
+        return -1
 
 
 # ==============================
