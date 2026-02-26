@@ -923,9 +923,16 @@ class BridgeUI(QtWidgets.QWidget):
                 color:#e9f0ff;
             }
             QCheckBox { spacing:8px; }
-            QLabel#heroTitle { font-size:16pt; font-weight:800; color:#f5f8ff; }
+            QLabel#heroTitle {
+                font-size:16pt;
+                font-weight:800;
+                color:#f5f8ff;
+                background:rgba(54,94,252,0.17);
+                border:1px solid #4a6dfd;
+                border-radius:17px;
+                padding:4px 14px;
+            }
             QLabel#heroSub { color:#a8bde4; font-size:10.5pt; }
-            QLabel#heroDot { background:#ffffff; border-radius:8px; min-width:16px; max-width:16px; min-height:16px; max-height:16px; }
             QLabel#footerBar {
                 background:rgba(10,18,36,.75);
                 border:1px solid #24365f;
@@ -946,10 +953,6 @@ class BridgeUI(QtWidgets.QWidget):
         title_row = QtWidgets.QHBoxLayout()
         title_row.setContentsMargins(0, 0, 0, 0)
         title_row.setSpacing(8)
-
-        self.logo_label = QtWidgets.QLabel()
-        self.logo_label.setObjectName("heroDot")
-        title_row.addWidget(self.logo_label, 0, QtCore.Qt.AlignVCenter)
 
         self.title = QtWidgets.QLabel("NeuroTrack Command Center")
         self.title.setObjectName("heroTitle")
@@ -1116,6 +1119,7 @@ class BridgeUI(QtWidgets.QWidget):
         self._last_neuro_state = ""
         self._last_track_state = ""
         self._last_toast_ts = 0.0
+        self._status_hold_until = 0.0
 
         # HTTP-экспорт текущих данных на localhost
         self.local_server = LocalhostDataServer(self._collect_export_payload, "127.0.0.1", 8765)
@@ -1223,7 +1227,7 @@ class BridgeUI(QtWidgets.QWidget):
         if now - self._last_toast_ts < 3:
             return
         self._last_toast_ts = now
-        t = Toast(self, title, text, timeout_ms=20000)
+        t = Toast(self, title, text, timeout_ms=2000)
         t.show()
 
     # ---------- ports ----------
@@ -1243,9 +1247,10 @@ class BridgeUI(QtWidgets.QWidget):
         track_index = -1
 
         for i, (dev, name) in enumerate(ports):
-            label = f"{dev} — {name}"
-            self.cb_neuro.addItem(label, dev)
-            self.cb_track.addItem(label, dev)
+            neuro_label = f"{dev} — {name}"
+            track_label = f"{dev} — {self._track_port_display_name(name)}"
+            self.cb_neuro.addItem(neuro_label, dev)
+            self.cb_track.addItem(track_label, dev)
             if dev == prev_neuro:
                 neuro_index = i
             if dev == prev_track:
@@ -1255,11 +1260,10 @@ class BridgeUI(QtWidgets.QWidget):
             self.cb_neuro.setCurrentIndex(neuro_index)
         if track_index >= 0:
             self.cb_track.setCurrentIndex(track_index)
-        elif platform.system().lower() == "windows":
-            for i, (_dev, name) in enumerate(ports):
-                if self._is_trackduino_usb_port(name):
-                    self.cb_track.setCurrentIndex(i)
-                    break
+        else:
+            # Не делаем "слепой" выбор первого порта Trackduino в списке.
+            # Список остаётся нейтральным, а авто-детект выполняется в момент подключения.
+            self.cb_track.setCurrentIndex(-1)
 
         self.cb_neuro.blockSignals(False)
         self.cb_track.blockSignals(False)
@@ -1267,6 +1271,32 @@ class BridgeUI(QtWidgets.QWidget):
     def on_ports_timer(self):
         # обновляем раз в 10 секунд, но стараемся не мешать пользователю
         self.refresh_ports()
+
+    @staticmethod
+    def _is_trackduino_usb_port(port_name: str) -> bool:
+        """
+        Эвристика для Windows: пытаемся выбрать USB-порт Trackduino по friendly name.
+        Используем безопасный набор ключевых слов, чтобы не падать, если нет точного матча.
+        """
+        normalized = (port_name or "").casefold()
+        markers = (
+            "trackduino",
+            "robotrack",
+            "arduino",
+            "usb serial",
+            "usb-serial",
+            "ch340",
+            "cp210",
+            "ftdi",
+        )
+        return any(marker in normalized for marker in markers)
+
+    @staticmethod
+    def _track_port_display_name(port_name: str) -> str:
+        normalized = (port_name or "").casefold()
+        if "usb serial" in normalized or "usb-serial" in normalized or "nrackduino" in normalized:
+            return "Trackduino"
+        return port_name
 
     # ---------- connect / disconnect ----------
     def on_toggle_neuro(self):
@@ -1322,7 +1352,8 @@ class BridgeUI(QtWidgets.QWidget):
             self.status_label.setStyleSheet("font-weight:600;")
         neuro = self.cb_neuro.currentData() if self._neuro_connected else "—"
         track = self.cb_track.currentData() if self._track_connected else "—"
-        self.lbl_ports.setText(t["footer_ports"].format(neuro=neuro or "—", track=track or "—"))
+        track_state = self._translate_track_state(self._last_track_state) if self._track_connected else (track or "—")
+        self.lbl_ports.setText(t["footer_ports"].format(neuro=neuro or "—", track=track_state))
 
 
     def open_api_access(self):
@@ -1368,11 +1399,20 @@ class BridgeUI(QtWidgets.QWidget):
             pass
 
         self.reader = None
+        self.cur_a = self.cur_m = self.cur_b = 0
+        self.cur_poor = 200
+        if self.bridge and self.bridge.isRunning():
+            self.bridge.set_neuro_values(0, 0, 0, False)
         self.status_label.setText(self.i18n[self.current_lang]["status_waiting"])
         self._sync_connection_flags()
 
     def _connect_track(self):
         track = self.cb_track.currentData()
+        if not track:
+            autodetect_index = self._find_trackduino_port_index()
+            if autodetect_index >= 0:
+                self.cb_track.setCurrentIndex(autodetect_index)
+                track = self.cb_track.currentData()
         if not track:
             QtWidgets.QMessageBox.warning(self, "Trackduino", "Не выбран порт Trackduino.")
             return
@@ -1426,23 +1466,6 @@ class BridgeUI(QtWidgets.QWidget):
             }
         }
 
-    def closeEvent(self, event):
-        try:
-            self.local_server.stop()
-        except Exception:
-            pass
-        super().closeEvent(event)
-
-    def _collect_export_payload(self) -> Dict[str, object]:
-        # Формат строго по требованию интеграции:
-        # <{"n":{"a":A,"m":M,"b":B}}>
-        return {
-            "n": {
-                "a": int(self.cur_a),
-                "m": int(self.cur_m),
-                "b": int(self.cur_b),
-            }
-        }
 
     # ---------- status handlers ----------
     def _translate_neuro_state(self, s: str) -> str:
@@ -1457,28 +1480,60 @@ class BridgeUI(QtWidgets.QWidget):
             }.get(s, s)
         return s
 
+    def _translate_track_state(self, s: str) -> str:
+        if self.current_lang == "en":
+            return {
+                "Подключено": "Connected",
+                "Отключено": "Disconnected",
+            }.get(s, s)
+        return s
+
     def _status_prefix(self) -> str:
         return self.i18n[self.current_lang].get("status_prefix", "NeuroTrack")
 
     def on_neuro_status(self, s: str):
         self._last_neuro_state = s
         shown_state = self._translate_neuro_state(s)
+        now = time.time()
+        critical_states = {"Отключено", "Нет сигнала", "Плохой контакт", "Нейротрек снят"}
+
+        if now < self._status_hold_until and s not in critical_states:
+            return
+
         self.status_label.setText(f"{self._status_prefix()}: {shown_state}")
         self.status_label.setStyleSheet(f"font-weight:600; color:{nice_state_color(shown_state)};")
 
-        # уведомления по требованиям
-        if s in ("Отключено", "Нет сигнала", "Плохой контакт", "Нейротрек снят"):
+        if s in critical_states:
+            self._status_hold_until = now + 2.0
+            self.cur_a = self.cur_m = self.cur_b = 0
+            self.cur_poor = 200
+            self.vbar_a.setValue(0)
+            self.vbar_m.setValue(0)
+            t = self.i18n[self.current_lang]
+            self.lbl_a_val.setText(t["attention_value"].format(value=0))
+            self.lbl_m_val.setText(t["meditation_value"].format(value=0))
+            if self.bridge and self.bridge.isRunning():
+                self.bridge.set_neuro_values(0, 0, 0, False)
             self._toast("NeuroTrack", f"{self._status_prefix()}: {shown_state}.")
 
     def on_track_opened(self, ok: bool, msg: str):
         if not ok:
             self._toast("Trackduino", msg)
-        self.lbl_ports.setText(msg)
+            self._track_connected = False
+            self.bridge = None
+            self._sync_connection_flags()
+        t = self.i18n[self.current_lang]
+        neuro = self.cb_neuro.currentData() if self._neuro_connected else "—"
+        track_state = self._translate_track_state("Подключено" if ok else "Отключено")
+        self.lbl_ports.setText(t["footer_ports"].format(neuro=neuro or "—", track=track_state))
 
     def on_track_status(self, s: str):
         self._last_track_state = s
         if s == "Отключено":
-            self._toast("Trackduino", "Trackduino отключено или потерян COM-порт.")
+            self._track_connected = False
+            self.bridge = None
+            self._sync_connection_flags()
+            self._toast("Trackduino", "Trackduino disconnected or COM port lost." if self.current_lang == "en" else "Trackduino отключено или потерян COM-порт.")
 
     # ---------- samples ----------
     def on_sample(self, a: int, m: int, b: int, poor: int):
@@ -1558,8 +1613,20 @@ class BridgeUI(QtWidgets.QWidget):
 
         if self.cb_track.count() > 0 and not self._track_connected:
             track = self.cb_track.currentData()
+            if not track:
+                autodetect_index = self._find_trackduino_port_index()
+                if autodetect_index >= 0:
+                    self.cb_track.setCurrentIndex(autodetect_index)
+                    track = self.cb_track.currentData()
             if track:
                 self._connect_track()
+
+    def _find_trackduino_port_index(self) -> int:
+        for i in range(self.cb_track.count()):
+            name = self.cb_track.itemText(i)
+            if self._is_trackduino_usb_port(name):
+                return i
+        return -1
 
 
 # ==============================
