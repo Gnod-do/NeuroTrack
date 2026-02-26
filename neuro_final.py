@@ -241,6 +241,11 @@ class NeuroReader(QtCore.QThread):
         self._last_status = ""
 
 
+        # Fallback-detect моргания по RAW (0x80), если чип редко/нестабильно шлёт 0x16.
+        self._raw_blink_threshold = int(os.getenv("NT_BLINK_RAW_THRESHOLD", "1000"))
+        self._raw_blink_debounce = 0.3
+        self._last_blink_ts = 0.0
+
     def stop(self):
         self._run = False
 
@@ -248,6 +253,45 @@ class NeuroReader(QtCore.QThread):
         if s != self._last_status:
             self._last_status = s
             self.status.emit(s)
+
+    @staticmethod
+    def _blink_to_0_100(v: int) -> int:
+        # TGAM blink обычно 0..255, приводим к 0..100
+        if v <= 0:
+            return 0
+        if v >= 255:
+            return 100
+        return int(round(v * 100.0 / 255.0))
+
+    def _debug_log_blink(self, payload: bytes, had_blink_code: bool, blink_raw: Optional[int]):
+        if not self._debug_blink:
+            return
+
+        now = time.time()
+        if had_blink_code:
+            self._last_blink_debug_ts = now
+            print(f"[BLINK-DEBUG] code=0x16 raw={blink_raw} mapped={self._blink_to_0_100(int(blink_raw or 0))}")
+            return
+
+        # Чтобы не спамить: не чаще раза в 2 секунды пишем отсутствие 0x16.
+        if now - self._last_blink_debug_ts >= 2.0:
+            self._last_blink_debug_ts = now
+            hex_payload = payload.hex(" ")
+            print(f"[BLINK-DEBUG] no 0x16 in payload (len={len(payload)}): {hex_payload}")
+
+    @staticmethod
+    def _raw_to_blink_0_100(raw_value: int) -> int:
+        # Мягкое отображение амплитуды RAW -> 0..100
+        return int(max(0, min(100, abs(raw_value) / 20.0)))
+
+    def _detect_blink_from_raw(self, raw_value: int) -> Optional[int]:
+        now = time.time()
+        if abs(raw_value) < self._raw_blink_threshold:
+            return None
+        if now - self._last_blink_ts < self._raw_blink_debounce:
+            return None
+        self._last_blink_ts = now
+        return self._raw_to_blink_0_100(raw_value)
 
     def run(self):
         try:
@@ -296,6 +340,30 @@ class NeuroReader(QtCore.QThread):
                             if code == 0x05 and i < len(payload):
                                 meditation = payload[i]
                                 i += 1
+                                continue
+
+                            # Blink strength (0x16)
+                            if code == 0x16 and i < len(payload):
+                                blink_raw = int(payload[i])
+                                had_blink_code = True
+                                blink_0_100 = self._blink_to_0_100(blink_raw)
+                                i += 1
+                                continue
+
+                            # RAW EEG value (0x80): [len=2][hi][lo], signed
+                            if code == 0x80 and i < len(payload):
+                                ln = payload[i]
+                                i += 1
+                                if i + ln <= len(payload):
+                                    raw_bytes = payload[i:i + ln]
+                                    i += ln
+                                    if ln > 0:
+                                        raw = int.from_bytes(raw_bytes, byteorder="big", signed=True)
+                                        raw_blink = self._detect_blink_from_raw(raw)
+                                        if raw_blink is not None:
+                                            blink_0_100 = raw_blink
+                                else:
+                                    i = len(payload)
                                 continue
 
                             # multi-byte values: code >= 0x80, next is length
@@ -1416,6 +1484,14 @@ class BridgeUI(QtWidgets.QWidget):
                 "Подключено": "Connected",
                 "Плохой контакт": "Poor contact",
                 "Нейротрек снят": "NeuroTrack removed",
+                "Отключено": "Disconnected",
+            }.get(s, s)
+        return s
+
+    def _translate_track_state(self, s: str) -> str:
+        if self.current_lang == "en":
+            return {
+                "Подключено": "Connected",
                 "Отключено": "Disconnected",
             }.get(s, s)
         return s
