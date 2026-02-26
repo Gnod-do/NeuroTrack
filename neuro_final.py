@@ -1294,8 +1294,8 @@ class BridgeUI(QtWidgets.QWidget):
     @staticmethod
     def _track_port_display_name(port_name: str) -> str:
         normalized = (port_name or "").casefold()
-        if "usb serial" in normalized or "usb-serial" in normalized:
-            return "Nrackduino"
+        if "usb serial" in normalized or "usb-serial" in normalized or "nrackduino" in normalized:
+            return "Trackduino"
         return port_name
 
     # ---------- connect / disconnect ----------
@@ -1519,6 +1519,9 @@ class BridgeUI(QtWidgets.QWidget):
     def on_track_opened(self, ok: bool, msg: str):
         if not ok:
             self._toast("Trackduino", msg)
+            self._track_connected = False
+            self.bridge = None
+            self._sync_connection_flags()
         t = self.i18n[self.current_lang]
         neuro = self.cb_neuro.currentData() if self._neuro_connected else "—"
         track_state = self._translate_track_state("Подключено" if ok else "Отключено")
@@ -1527,6 +1530,9 @@ class BridgeUI(QtWidgets.QWidget):
     def on_track_status(self, s: str):
         self._last_track_state = s
         if s == "Отключено":
+            self._track_connected = False
+            self.bridge = None
+            self._sync_connection_flags()
             self._toast("Trackduino", "Trackduino disconnected or COM port lost." if self.current_lang == "en" else "Trackduino отключено или потерян COM-порт.")
 
     # ---------- samples ----------
