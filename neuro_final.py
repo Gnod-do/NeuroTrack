@@ -243,6 +243,11 @@ class NeuroReader(QtCore.QThread):
         self._debug_blink = os.getenv("NT_DEBUG_BLINK", "0").strip().lower() in {"1", "true", "yes", "on"}
         self._last_blink_debug_ts = 0.0
 
+        # Fallback-detect моргания по RAW (0x80), если чип редко/нестабильно шлёт 0x16.
+        self._raw_blink_threshold = int(os.getenv("NT_BLINK_RAW_THRESHOLD", "1000"))
+        self._raw_blink_debounce = 0.3
+        self._last_blink_ts = 0.0
+
     def stop(self):
         self._run = False
 
@@ -275,6 +280,20 @@ class NeuroReader(QtCore.QThread):
             self._last_blink_debug_ts = now
             hex_payload = payload.hex(" ")
             print(f"[BLINK-DEBUG] no 0x16 in payload (len={len(payload)}): {hex_payload}")
+
+    @staticmethod
+    def _raw_to_blink_0_100(raw_value: int) -> int:
+        # Мягкое отображение амплитуды RAW -> 0..100
+        return int(max(0, min(100, abs(raw_value) / 20.0)))
+
+    def _detect_blink_from_raw(self, raw_value: int) -> Optional[int]:
+        now = time.time()
+        if abs(raw_value) < self._raw_blink_threshold:
+            return None
+        if now - self._last_blink_ts < self._raw_blink_debounce:
+            return None
+        self._last_blink_ts = now
+        return self._raw_to_blink_0_100(raw_value)
 
     def run(self):
         try:
@@ -334,6 +353,22 @@ class NeuroReader(QtCore.QThread):
                                 had_blink_code = True
                                 blink_0_100 = self._blink_to_0_100(blink_raw)
                                 i += 1
+                                continue
+
+                            # RAW EEG value (0x80): [len=2][hi][lo], signed
+                            if code == 0x80 and i < len(payload):
+                                ln = payload[i]
+                                i += 1
+                                if i + ln <= len(payload):
+                                    raw_bytes = payload[i:i + ln]
+                                    i += ln
+                                    if ln > 0:
+                                        raw = int.from_bytes(raw_bytes, byteorder="big", signed=True)
+                                        raw_blink = self._detect_blink_from_raw(raw)
+                                        if raw_blink is not None:
+                                            blink_0_100 = raw_blink
+                                else:
+                                    i = len(payload)
                                 continue
 
                             # multi-byte values: code >= 0x80, next is length
