@@ -38,7 +38,6 @@ class ThinkGearParser:
     Достаёт payload из потока байтов ThinkGear (AA AA LEN PAYLOAD CHK).
     Проверка checksum выполняется (как в протоколе ThinkGear).
     """
-
     def __init__(self):
         self.buffer = bytearray()
 
@@ -184,7 +183,6 @@ class Toast(QtWidgets.QDialog):
     """
     Небольшое уведомление, показывается на 20 секунд и исчезает.
     """
-
     def __init__(self, parent: QtWidgets.QWidget, title: str, text: str, timeout_ms: int = 20000):
         super().__init__(parent)
         self.setWindowTitle(title)
@@ -205,7 +203,6 @@ class VerticalBar(QtWidgets.QProgressBar):
     """
     Вертикальный прогресс-бар, который заполняется СНИЗУ ВВЕРХ.
     """
-
     def __init__(self, title: str):
         super().__init__()
         self.setRange(0, 100)
@@ -461,7 +458,7 @@ class TrackBridge(QtCore.QThread):
 
         self._buf = bytearray()
         self._last_data_ts = time.time()
-        self._timeout_sec = 5.0  # сколько секунд ждём данные
+        self._timeout_sec = 5.0   # сколько секунд ждём данные
         self._last_status = ""
 
         self._got_first_request = False
@@ -566,7 +563,6 @@ class LocalhostDataServer:
     GET  /stream/data -> непрерывный SSE-поток JSON
     POST /shutdown -> остановка сервера
     """
-
     def __init__(self, data_provider, host: str = "127.0.0.1", port: int = 8765, stream_interval: float = 0.2):
         self.host = host
         self.port = int(port)
@@ -780,6 +776,7 @@ es.onerror=()=>setBadge(conn,'reconnecting…','err');
 </body>
 </html>"""
 
+
             def do_GET(self):
                 if self.path in ("/stream", "/stream/events"):
                     self._send_html(self._stream_page_html())
@@ -870,7 +867,7 @@ class BridgeUI(QtWidgets.QWidget):
             "ru": {
                 "window_title": "Мост NeuroTrack ↔ Trackduino",
                 "hero_title": "Нейроинтерфейс Роботрек",
-                "ports_group": "Порты устройств",
+                                "ports_group": "Порты устройств",
                 "state_group": "Состояние",
                 "content_group": "График и индикаторы",
                 "neuro_label": "🧠 Нейротрек:",
@@ -898,7 +895,7 @@ class BridgeUI(QtWidgets.QWidget):
             "en": {
                 "window_title": "NeuroTrack ↔ Trackduino Bridge",
                 "hero_title": "Robotrack neural interface",
-                "ports_group": "Device Ports",
+                                "ports_group": "Device Ports",
                 "state_group": "Status",
                 "content_group": "Chart and Indicators",
                 "neuro_label": "🧠 NeuroTrack:",
@@ -1153,6 +1150,7 @@ class BridgeUI(QtWidgets.QWidget):
         self.x: List[float] = []
         self.a_hist: List[int] = []
         self.m_hist: List[int] = []
+        
 
         self.cur_a = 0
         self.cur_m = 0
@@ -1204,7 +1202,7 @@ class BridgeUI(QtWidgets.QWidget):
         self.plot.addLegend()
         self.curve_a = self.plot.plot(pen=pg.mkPen("#49e6a3", width=2.6), name=t["attention"])
         self.curve_m = self.plot.plot(pen=pg.mkPen("#64beff", width=2.6), name=t["meditation"])
-
+        
         for curve in (self.curve_a, self.curve_m):
             curve.setDownsampling(auto=True, method="peak")
             curve.setClipToView(True)
@@ -1214,6 +1212,7 @@ class BridgeUI(QtWidgets.QWidget):
         b_hist = self.__dict__.get("b_hist", [])
         self.curve_a.setData(x_hist, a_hist)
         self.curve_m.setData(x_hist, m_hist)
+        
 
     @staticmethod
     def _asset_path(filename: str) -> str:
@@ -1251,8 +1250,7 @@ class BridgeUI(QtWidgets.QWidget):
         painter.drawText(QtCore.QRect(46, 6, 128, 20), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, "ROBOTRACK")
         painter.setFont(QtGui.QFont("Arial", 9, QtGui.QFont.Bold))
         painter.setPen(QtGui.QPen(QtGui.QColor("#365efc")))
-        painter.drawText(QtCore.QRect(46, 26, 128, 18), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter,
-                         "Neural Interface")
+        painter.drawText(QtCore.QRect(46, 26, 128, 18), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, "Neural Interface")
         painter.end()
         return pix
 
@@ -1408,6 +1406,7 @@ class BridgeUI(QtWidgets.QWidget):
         track_state = self._translate_track_state(self._last_track_state) if self._track_connected else (track or "—")
         self.lbl_ports.setText(t["footer_ports"].format(neuro=neuro or "—", track=track_state))
 
+
     def open_api_access(self):
         QtGui.QDesktopServices.openUrl(QtCore.QUrl("http://127.0.0.1:8765/stream"))
 
@@ -1456,13 +1455,11 @@ class BridgeUI(QtWidgets.QWidget):
 
         if self._neuro_connected:
             return
-
+        
         self.t0 = None
 
         self._has_live_sample = False
-        self.x.clear();
-        self.a_hist.clear();
-        self.m_hist.clear()
+        self.x.clear(); self.a_hist.clear(); self.m_hist.clear()
 
         self.cur_a = self.cur_m = self.cur_b = 0
         self.cur_poor = 200
@@ -1474,7 +1471,7 @@ class BridgeUI(QtWidgets.QWidget):
         self.reader.start()
 
         # даём потоку 700 мс на попытку открытия порта
-        QtCore.QTimer.singleShot(4000, self._verify_neuro_connection)
+        QtCore.QTimer.singleShot(2000, self._verify_neuro_connection)
         self._sync_connection_flags()
         track = self.cb_track.currentData() if self._track_connected else "—"
         t = self.i18n[self.current_lang]
@@ -1486,7 +1483,7 @@ class BridgeUI(QtWidgets.QWidget):
         try:
             if self.reader:
                 self.reader.stop()
-                self.reader.wait(2000)  # ждём завершения потока
+                self.reader.wait(2000)   # ждём завершения потока
         except Exception:
             pass
 
@@ -1504,10 +1501,11 @@ class BridgeUI(QtWidgets.QWidget):
         self.status_label.setText(self.i18n[self.current_lang]["status_waiting"])
         self._sync_connection_flags()
 
+
     def _connect_track(self):
         track = self.cb_track.currentData()
 
-        # Если порт не выбран — пробуем автоопределение
+    # Если порт не выбран — пробуем автоопределение
         if not track:
             autodetect_index = self._find_trackduino_port_index()
             if autodetect_index >= 0:
@@ -1571,17 +1569,18 @@ class BridgeUI(QtWidgets.QWidget):
             }
         }
 
+
     # ---------- status handlers ----------
     def _translate_neuro_state(self, s: str) -> str:
         if self.current_lang == "en":
             return {
-                "Подключение...": "Connecting...",
-                "Подключено": "Connected",
-                "Нормальный контакт": "Normal contact",
-                "Плохой контакт": "Poor contact",
-                "Нейротрек снят": "NeuroTrack removed",
-                "Нет сигнала": "No signal",
-                "Отключено": "Disconnected",
+              "Подключение...": "Connecting...",
+            "Подключено": "Connected",
+            "Нормальный контакт": "Normal contact",
+            "Плохой контакт": "Poor contact",
+            "Нейротрек снят": "NeuroTrack removed",
+            "Нет сигнала": "No signal",
+            "Отключено": "Disconnected",
             }.get(s, s)
         return s
 
@@ -1619,8 +1618,8 @@ class BridgeUI(QtWidgets.QWidget):
             self.lbl_m_val.setText(t["meditation_value"].format(value=0))
             if self.bridge and self.bridge.isRunning():
                 self.bridge.set_neuro_values(0, 0, 0, False)
-
-            # если нет сигнала — считаем устройство отключённым
+            
+             # если нет сигнала — считаем устройство отключённым
             if s == "Нет сигнала" and self._neuro_connected:
                 QtCore.QTimer.singleShot(0, self._disconnect_neuro)
 
@@ -1641,8 +1640,7 @@ class BridgeUI(QtWidgets.QWidget):
             self._track_connected = False
             self.bridge = None
             self._sync_connection_flags()
-            self._toast("Trackduino",
-                        "Trackduino disconnected or COM port lost." if self.current_lang == "en" else "Trackduino отключено или потерян COM-порт.")
+            self._toast("Trackduino", "Trackduino disconnected or COM port lost." if self.current_lang == "en" else "Trackduino отключено или потерян COM-порт.")
 
     # ---------- samples ----------
     def on_sample(self, a: int, m: int, b: int, poor: int):
@@ -1686,11 +1684,13 @@ class BridgeUI(QtWidgets.QWidget):
         self.x.append(t)
         self.a_hist.append(self.cur_a)
         self.m_hist.append(self.cur_m)
+        
 
         if len(self.x) > self.max_points:
             self.x = self.x[-self.max_points:]
             self.a_hist = self.a_hist[-self.max_points:]
             self.m_hist = self.m_hist[-self.max_points:]
+            
 
         if self.x:
             self.plot.setXRange(self.x[0], self.x[-1] if self.x[-1] > 10 else 10)
@@ -1701,12 +1701,14 @@ class BridgeUI(QtWidgets.QWidget):
         b_hist = getattr(self, "b_hist", [])
         self.curve_a.setData(x, a_hist)
         self.curve_m.setData(x, m_hist)
+        
 
         self.vbar_a.setValue(self.cur_a)
         self.vbar_m.setValue(self.cur_m)
         t = self.i18n[self.current_lang]
         self.lbl_a_val.setText(t["attention_value"].format(value=self.cur_a))
         self.lbl_m_val.setText(t["meditation_value"].format(value=self.cur_m))
+
 
     # ---------- autoconnect ----------
     def try_autoconnect(self):
