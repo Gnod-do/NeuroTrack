@@ -1220,7 +1220,7 @@ class BridgeUI(QtWidgets.QWidget):
         return os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
 
     def _load_hero_logo(self) -> QtGui.QPixmap:
-        logo_path = self._asset_path("нейротрек.svg")
+        logo_path = self._asset_path("neurotrack.svg")
         icon = QtGui.QIcon(logo_path)
         pix = icon.pixmap(180, 52)
         if not pix.isNull():
@@ -1228,7 +1228,7 @@ class BridgeUI(QtWidgets.QWidget):
         return self._fallback_robotrack_logo()
 
     def _load_app_icon(self) -> QtGui.QIcon:
-        logo_path = self._asset_path("нейротрек.svg")
+        logo_path = self._asset_path("neurotrack.svg")
         icon = QtGui.QIcon(logo_path)
         if not icon.isNull():
             return icon
