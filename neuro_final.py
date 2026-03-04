@@ -1120,6 +1120,8 @@ class BridgeUI(QtWidgets.QWidget):
         self._connected = False
         self._neuro_connected = False
         self._track_connected = False
+        self._neuro_connecting = False
+        self._track_connecting = False
         self.reader: Optional[NeuroReader] = None
         self.bridge: Optional[TrackBridge] = None
 
@@ -1318,8 +1320,20 @@ class BridgeUI(QtWidgets.QWidget):
     def _sync_connection_flags(self):
         self._connected = self._neuro_connected or self._track_connected
         t = self.i18n[self.current_lang]
-        self.btn_neuro_toggle.setText(t["btn_neuro_disconnect"] if self._neuro_connected else t["btn_neuro_connect"])
-        self.btn_track_toggle.setText(t["btn_track_disconnect"] if self._track_connected else t["btn_track_connect"])
+
+        if self._neuro_connecting:
+            self.btn_neuro_toggle.setText("Подключение..." if self.current_lang == "ru" else "Connecting...")
+            self.btn_neuro_toggle.setEnabled(False)
+        else:
+            self.btn_neuro_toggle.setEnabled(True)
+            self.btn_neuro_toggle.setText(t["btn_neuro_disconnect"] if self._neuro_connected else t["btn_neuro_connect"])
+
+        if self._track_connecting:
+            self.btn_track_toggle.setText("Подключение..." if self.current_lang == "ru" else "Connecting...")
+            self.btn_track_toggle.setEnabled(False)
+        else:
+            self.btn_track_toggle.setEnabled(True)
+            self.btn_track_toggle.setText(t["btn_track_disconnect"] if self._track_connected else t["btn_track_connect"])
 
     def set_language(self, lang: str):
         if lang not in self.i18n:
@@ -1363,6 +1377,23 @@ class BridgeUI(QtWidgets.QWidget):
     def open_api_access(self):
         QtGui.QDesktopServices.openUrl(QtCore.QUrl("http://127.0.0.1:8765/stream"))
 
+    def _verify_neuro_connection(self):
+        self._neuro_connecting = False
+
+        if not self.reader or not self.reader.isRunning() or not self._has_live_sample:
+            try:
+                if self.reader:
+                    self.reader.stop()
+                    self.reader.wait(1000)
+            except Exception:
+                pass
+            self.reader = None
+            self._neuro_connected = False
+            self._sync_connection_flags()
+            return
+
+        self._neuro_connected = True
+        self._sync_connection_flags()
 
     def _connect_neuro(self):
         neuro = self.cb_neuro.currentData()
@@ -1370,7 +1401,7 @@ class BridgeUI(QtWidgets.QWidget):
             QtWidgets.QMessageBox.warning(self, "NeuroTrack", "Не выбран порт NeuroTrack.")
             return
 
-        if self._neuro_connected:
+        if self._neuro_connected or self._neuro_connecting:
             return
 
         self.t0 = None
@@ -1386,14 +1417,16 @@ class BridgeUI(QtWidgets.QWidget):
         self.reader.status.connect(self.on_neuro_status)
         self.reader.start()
 
-        self._neuro_connected = True
+        self._neuro_connecting = True
         self._sync_connection_flags()
+        QtCore.QTimer.singleShot(2000, self._verify_neuro_connection)
         track = self.cb_track.currentData() if self._track_connected else "—"
         t = self.i18n[self.current_lang]
         self.lbl_ports.setText(t["footer_ports"].format(neuro=neuro, track=track or "—"))
 
     def _disconnect_neuro(self):
         self._neuro_connected = False
+        self._neuro_connecting = False
 
         try:
             if self.reader and self.reader.isRunning():
@@ -1426,18 +1459,19 @@ class BridgeUI(QtWidgets.QWidget):
             QtWidgets.QMessageBox.warning(self, "Trackduino", "Trackduino и NeuroTrack не могут использовать один и тот же COM-порт.")
             return
 
-        if self._track_connected:
+        if self._track_connected or self._track_connecting:
             return
 
         self.bridge = TrackBridge(track, 115200)
         self.bridge.opened.connect(self.on_track_opened)
         self.bridge.status.connect(self.on_track_status)
         self.bridge.start()
-        self._track_connected = True
+        self._track_connecting = True
         self._sync_connection_flags()
 
     def _disconnect_track(self):
         self._track_connected = False
+        self._track_connecting = False
 
         try:
             if self.bridge and self.bridge.isRunning():
@@ -1533,11 +1567,14 @@ class BridgeUI(QtWidgets.QWidget):
             self._toast("NeuroTrack", f"{self._status_prefix()}: {shown_state}.")
 
     def on_track_opened(self, ok: bool, msg: str):
+        self._track_connecting = False
         if not ok:
             self._toast("Trackduino", msg)
             self._track_connected = False
             self.bridge = None
-            self._sync_connection_flags()
+        else:
+            self._track_connected = True
+        self._sync_connection_flags()
         t = self.i18n[self.current_lang]
         neuro = self.cb_neuro.currentData() if self._neuro_connected else "—"
         track_state = self._translate_track_state("Подключено" if ok else "Отключено")
@@ -1546,6 +1583,7 @@ class BridgeUI(QtWidgets.QWidget):
     def on_track_status(self, s: str):
         self._last_track_state = s
         if s == "Отключено":
+            self._track_connecting = False
             self._track_connected = False
             self.bridge = None
             self._sync_connection_flags()
