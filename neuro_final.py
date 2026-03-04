@@ -1419,7 +1419,7 @@ class BridgeUI(QtWidgets.QWidget):
 
         self._neuro_connecting = True
         self._sync_connection_flags()
-        QtCore.QTimer.singleShot(2000, self._verify_neuro_connection)
+        QtCore.QTimer.singleShot(4000, self._verify_neuro_connection)
         track = self.cb_track.currentData() if self._track_connected else "—"
         t = self.i18n[self.current_lang]
         self.lbl_ports.setText(t["footer_ports"].format(neuro=neuro, track=track or "—"))
